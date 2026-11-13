@@ -1,7 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from PIL import Image, UnidentifiedImageError
-from io import BytesIO
 from app.core.config import settings
+from app.core.exceptions import ImageValidationError
+from app.services.image_service import image_service
 
 router = APIRouter()
 
@@ -15,59 +15,14 @@ ALLOWED_FORMATS = {
 
 
 async def validate_image(file: UploadFile):
-
-    # Check whether a file was provided
-    if not file.filename:
-        raise HTTPException(
-            status_code=400,
-            detail="No file selected."
-        )
-
-    # Read the uploaded image
-    contents = await file.read(MAX_FILE_SIZE + 1)
-
-    # Check empty file
-    if not contents:
-        raise HTTPException(
-            status_code=400,
-            detail="Uploaded file is empty."
-        )
-
-    # Check file size
-    if len(contents) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail="Image size must not exceed 10 MB."
-        )
-
+    """Validate uploaded image file using central ImageService while preserving backward-compatible error types."""
     try:
-        # Verify actual image content
-        image = Image.open(BytesIO(contents))
-        image.verify()
-
-        # Reopen image to obtain dimensions
-        image = Image.open(BytesIO(contents))
-
-        image_format = image.format
-
-        if image_format not in ALLOWED_FORMATS:
-            raise HTTPException(
-                status_code=415,
-                detail="Only JPEG, PNG and WEBP images are allowed."
-            )
-
-        return {
-            "filename": file.filename,
-            "format": image_format,
-            "width": image.width,
-            "height": image.height,
-            "size_bytes": len(contents)
-        }
-
-    except (UnidentifiedImageError, OSError, SyntaxError):
+        processed = await image_service.validate_and_process_upload(file)
+        return processed.to_dict()
+    except ImageValidationError as e:
         raise HTTPException(
-            status_code=400,
-            detail="Invalid or corrupted image."
+            status_code=e.status_code,
+            detail=e.message,
         )
 
 

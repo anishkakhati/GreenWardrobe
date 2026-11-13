@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     # File upload limits
     MAX_UPLOAD_SIZE_BYTES: int = 10 * 1024 * 1024  # 10 MB
     ALLOWED_IMAGE_FORMATS: List[str] = ["JPEG", "PNG", "WEBP"]
+    MAX_IMAGE_PIXELS: int = 25_000_000  # 25 MP decompression bomb limit
+    MAX_IMAGE_DIMENSION: int = 8192     # Max width or height in pixels
 
     # Google Gemini API configuration
     GEMINI_API_KEY: str = Field(

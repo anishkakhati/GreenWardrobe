@@ -12,6 +12,7 @@ class ImageMetadata(BaseModel):
     width: int = Field(gt=0, description="Image width in pixels")
     height: int = Field(gt=0, description="Image height in pixels")
     size_bytes: int = Field(gt=0, description="Image size in bytes")
+    mime_type: Optional[str] = Field(default=None, description="Standard MIME type")
 
 
 class AnalysisOptions(BaseModel):
