@@ -1,6 +1,23 @@
-# Green Wardrobe — Environmental Scoring & Recommendation Engine
 
-A small, runnable Python reference implementation for Module 04.
+## Module Ownership & Contribution
+
+# **Module:** Module 04 – Environmental Scoring & Recommendation Engine
+
+**Contributor:** Manish Yadav
+
+**Primary Responsibilities:**
+- Research and define environmental scoring methodology.
+- Develop material-level environmental scoring algorithms.
+- Implement weighted calculations for blended fabrics.
+- Develop the recommendation engine.
+- Handle missing environmental data.
+- Implement score classification and thresholds.
+- Write and execute automated test cases.
+- Document scoring methodology and assumptions.
+
+**Technology Stack:** Python, Pandas, NumPy, Pytest
+
+**Project:** Green Wardrobe
 
 ## Important data and methodology warning
 
