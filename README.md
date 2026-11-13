@@ -1,7 +1,7 @@
 
 ## Module Ownership & Contribution
 
-# **Module:** Module 04 – Environmental Scoring & Recommendation Engine
+# **Module:** – Environmental Scoring & Recommendation Engine
 
 **Contributor:** Manish Yadav
 
