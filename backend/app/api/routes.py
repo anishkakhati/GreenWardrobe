@@ -1,11 +1,11 @@
-
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from PIL import Image, UnidentifiedImageError
 from io import BytesIO
+from app.core.config import settings
 
 router = APIRouter()
 
-MAX_FILE_SIZE = 10 * 1024 * 1024
+MAX_FILE_SIZE = settings.MAX_UPLOAD_SIZE_BYTES
 
 ALLOWED_FORMATS = {
     "JPEG": "image/jpeg",
