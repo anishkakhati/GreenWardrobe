@@ -86,6 +86,18 @@ class ScoringError(GreenWardrobeException):
         super().__init__(message=message, status_code=status_code, details=details)
 
 
+class ImageClassificationError(GreenWardrobeException):
+    """Raised when the image-type classifier cannot determine garment vs label."""
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int = status.HTTP_422_UNPROCESSABLE_CONTENT,
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(message=message, status_code=status_code, details=details)
+
+
 class GeminiServiceError(GreenWardrobeException):
     """Raised when Google Gemini API encounters an upstream failure or rate limit."""
 

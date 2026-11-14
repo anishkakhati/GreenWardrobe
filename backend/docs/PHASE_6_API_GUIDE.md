@@ -19,14 +19,16 @@ This guide provides the complete production API contract, request formats, respo
 
 ### Endpoint: `POST /api/v1/analyze`
 
-Executes the full end-to-end sustainable fashion analysis pipeline:
+Executes the full end-to-end sustainable fashion analysis pipeline from a single image:
 1. **Input Sanitization & Processing:** Pillow-based decoding, dimension bounds, and decompression-bomb protection.
-2. **Textile Care Label OCR:** EasyOCR + OpenCV pipeline extracting garment fabric fiber percentages.
-3. **Garment Surface Computer Vision:** Pretrained TextileNet ResNet-18 model classifying surface textile weaves across 33 classes.
-4. **Perception Reconciliation:** 5-scenario conflict engine reconciling label and visual evidence.
-5. **Knowledge Base Retrieval:** Life-cycle assessment indicators (water, carbon, energy, microplastics, biodegradability).
-6. **Environmental Scoring:** Weighted composite index across 6 categories (`water`, `carbon`, `energy`, `chemicals`, `microfibres`, `waste`) and 5 actionable recommendation tiers (`Buy`, `Think Twice`, `Repair`, `Reuse`, `Second-hand`).
-7. **Google Gemini Sustainability Explanation:** Grounded plain-language summary, care & repair guidelines, and purchasing suggestions.
+2. **Automatic Image-Type Classification:** Distinguishes whether the image is a `GARMENT` fabric surface photo or a `LABEL` care/composition tag.
+3. **Pipeline Routing:**
+   - **GARMENT:** Routed to Computer Vision surface texture model (33 fabric classes) to predict material and query Knowledge Base benchmarks.
+   - **LABEL:** Routed to EasyOCR + OpenCV pipeline to extract exact fiber composition and percentages.
+   - **UNKNOWN:** Returns a structured 422 error asking for a clearer photo if confidence is below threshold.
+4. **Knowledge Base Retrieval:** Life-cycle assessment indicators (water, carbon, energy, microplastics, biodegradability).
+5. **Environmental Scoring:** Weighted composite index across 6 categories (`water`, `carbon`, `energy`, `chemicals`, `microfibres`, `waste`) and 5 actionable recommendation tiers (`Buy`, `Think Twice`, `Repair`, `Reuse`, `Second-hand`).
+6. **Google Gemini Sustainability Explanation:** Grounded plain-language summary, care & repair guidelines, and purchasing suggestions.
 
 ---
 
@@ -39,15 +41,14 @@ Executes the full end-to-end sustainable fashion analysis pipeline:
 
 | Field Name | Type | Requirement | Description |
 | :--- | :--- | :--- | :--- |
-| `label_image` | Binary File | **Required** | Clear photo of the garment's fabric care/composition tag. |
-| `garment_image` | Binary File | **Required** | Photo of the garment's outer fabric surface texture. |
+| `image` | Binary File | **Required** | Clear photo of either the garment fabric surface OR the care/composition label tag. |
 | `shopping` | Boolean | Optional (Default: `true`) | Set to `true` if evaluating an item prior to purchase; `false` if analyzing an existing wardrobe item. |
 | `second_hand_available` | Boolean | Optional (Default: `false`) | Set to `true` if thrifted or second-hand options exist for this item. |
 | `condition` | String | Optional (Default: `"new"`) | Garment condition: `"new"`, `"used"`, or `"damaged"`. |
 
 ### Accepted File Constraints:
 - **Formats:** JPEG (`.jpg`, `.jpeg`), PNG (`.png`), WEBP (`.webp`).
-- **Maximum File Size:** `10 MB` (`10,485,760 bytes`) per image.
+- **Maximum File Size:** `10 MB` (`10,485,760 bytes`).
 - **Decompression Limit:** Maximum 25 Megapixels (rejects decompression bombs).
 - **Dimension Limit:** Maximum 8,192 pixels along any edge.
 
@@ -57,8 +58,7 @@ Executes the full end-to-end sustainable fashion analysis pipeline:
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/analyze" \
-  -F "label_image=@/path/to/care_label.jpg;type=image/jpeg" \
-  -F "garment_image=@/path/to/fabric_surface.jpg;type=image/jpeg" \
+  -F "image=@/path/to/clothing_image.jpg;type=image/jpeg" \
   -F "shopping=true" \
   -F "second_hand_available=false" \
   -F "condition=new"

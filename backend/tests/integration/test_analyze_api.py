@@ -55,12 +55,11 @@ def mock_gemini_explanation():
     )
 
 
-def test_analyze_api_valid_multipart_request(client, sample_label_bytes, valid_jpeg_bytes, mock_gemini_explanation):
-    """Verify POST /api/v1/analyze with valid images returns 200 and AnalysisResponse structure."""
+def test_analyze_api_valid_multipart_request(client, sample_label_bytes, mock_gemini_explanation):
+    """Verify POST /api/v1/analyze with valid image returns 200 and AnalysisResponse structure."""
     with patch.object(gemini_service.adapter, "_sync_generate", return_value=mock_gemini_explanation):
         files = {
-            "label_image": ("label_0002.jpg", sample_label_bytes, "image/jpeg"),
-            "garment_image": ("garment.jpg", valid_jpeg_bytes, "image/jpeg"),
+            "image": ("label_0002.jpg", sample_label_bytes, "image/jpeg"),
         }
         data = {
             "shopping": "true",
@@ -84,29 +83,16 @@ def test_analyze_api_valid_multipart_request(client, sample_label_bytes, valid_j
     assert validated.metadata.explanation_status == "AVAILABLE"
 
 
-def test_analyze_api_missing_label_image(client, valid_jpeg_bytes):
-    """Verify POST /api/v1/analyze without required label_image returns 422 validation error."""
-    files = {
-        "garment_image": ("garment.jpg", valid_jpeg_bytes, "image/jpeg"),
-    }
-    response = client.post("/api/v1/analyze", files=files)
+def test_analyze_api_missing_image(client):
+    """Verify POST /api/v1/analyze without required image returns 422 validation error."""
+    response = client.post("/api/v1/analyze", data={"shopping": "true"})
     assert response.status_code == 422
 
 
-def test_analyze_api_missing_garment_image(client, sample_label_bytes):
-    """Verify POST /api/v1/analyze without required garment_image returns 422 validation error."""
-    files = {
-        "label_image": ("label_0002.jpg", sample_label_bytes, "image/jpeg"),
-    }
-    response = client.post("/api/v1/analyze", files=files)
-    assert response.status_code == 422
-
-
-def test_analyze_api_invalid_image_format(client, valid_jpeg_bytes):
+def test_analyze_api_invalid_image_format(client):
     """Verify POST /api/v1/analyze with non-image file extension/MIME returns 400 error."""
     files = {
-        "label_image": ("label.txt", b"plain text is not an image", "text/plain"),
-        "garment_image": ("garment.jpg", valid_jpeg_bytes, "image/jpeg"),
+        "image": ("label.txt", b"plain text is not an image", "text/plain"),
     }
     response = client.post("/api/v1/analyze", files=files)
     assert response.status_code in [400, 422]
@@ -115,11 +101,10 @@ def test_analyze_api_invalid_image_format(client, valid_jpeg_bytes):
     assert "format" in err_text or "unsupported" in err_text or "image" in err_text
 
 
-def test_analyze_api_corrupt_image_bytes(client, valid_jpeg_bytes, corrupt_image_bytes):
+def test_analyze_api_corrupt_image_bytes(client, corrupt_image_bytes):
     """Verify POST /api/v1/analyze with corrupt image bytes returns 400 error."""
     files = {
-        "label_image": ("label.jpg", corrupt_image_bytes, "image/jpeg"),
-        "garment_image": ("garment.jpg", valid_jpeg_bytes, "image/jpeg"),
+        "image": ("label.jpg", corrupt_image_bytes, "image/jpeg"),
     }
     response = client.post("/api/v1/analyze", files=files)
     assert response.status_code == 400
@@ -128,24 +113,22 @@ def test_analyze_api_corrupt_image_bytes(client, valid_jpeg_bytes, corrupt_image
     assert "corrupted" in err_text or "invalid" in err_text or "image" in err_text
 
 
-def test_analyze_api_oversized_image(client, valid_jpeg_bytes):
+def test_analyze_api_oversized_image(client):
     """Verify POST /api/v1/analyze with oversized image (>10MB) returns 413 Payload Too Large."""
     # 11 MB of zero bytes
     large_bytes = b"0" * (11 * 1024 * 1024)
     files = {
-        "label_image": ("label.jpg", valid_jpeg_bytes, "image/jpeg"),
-        "garment_image": ("garment_large.jpg", large_bytes, "image/jpeg"),
+        "image": ("garment_large.jpg", large_bytes, "image/jpeg"),
     }
     response = client.post("/api/v1/analyze", files=files)
     assert response.status_code == 413
 
 
-def test_analyze_api_optional_parameters_condition(client, sample_label_bytes, valid_jpeg_bytes, mock_gemini_explanation):
+def test_analyze_api_optional_parameters_condition(client, sample_label_bytes, mock_gemini_explanation):
     """Verify optional parameters (e.g. condition='damaged', shopping=False) affect recommendations."""
     with patch.object(gemini_service.adapter, "_sync_generate", return_value=mock_gemini_explanation):
         files = {
-            "label_image": ("label.jpg", sample_label_bytes, "image/jpeg"),
-            "garment_image": ("garment.jpg", valid_jpeg_bytes, "image/jpeg"),
+            "image": ("label.jpg", sample_label_bytes, "image/jpeg"),
         }
         data = {
             "shopping": "false",
@@ -160,13 +143,12 @@ def test_analyze_api_optional_parameters_condition(client, sample_label_bytes, v
     assert res_json["impact_assessment"]["recommendation"] in ["Repair", "Think Twice"]
 
 
-def test_orchestration_phase5_succeeds_gemini_unconfigured(client, sample_label_bytes, valid_jpeg_bytes):
+def test_orchestration_phase5_succeeds_gemini_unconfigured(client, sample_label_bytes):
     """Verify that when GEMINI_API_KEY is empty, the pipeline succeeds with factual deterministic fallback."""
     # Ensure unconfigured adapter
     with patch.object(gemini_service.adapter, "_api_key", ""):
         files = {
-            "label_image": ("label.jpg", sample_label_bytes, "image/jpeg"),
-            "garment_image": ("garment.jpg", valid_jpeg_bytes, "image/jpeg"),
+            "image": ("label.jpg", sample_label_bytes, "image/jpeg"),
         }
         response = client.post("/api/v1/analyze", files=files)
 
@@ -183,7 +165,7 @@ def test_orchestration_phase5_succeeds_gemini_unconfigured(client, sample_label_
     assert res_json["metadata"]["explanation_status"] == "UNAVAILABLE"
 
 
-def test_orchestration_scores_and_materials_unaltered_by_gemini(client, sample_label_bytes, valid_jpeg_bytes):
+def test_orchestration_scores_and_materials_unaltered_by_gemini(client, sample_label_bytes):
     """Verify Gemini explanation layer cannot alter original Phase 5 composition, scores, or recommendation."""
     # Injected rogue LLM response attempting to change fiber composition and score
     rogue_llm_json = AiExplanation(
@@ -198,8 +180,7 @@ def test_orchestration_scores_and_materials_unaltered_by_gemini(client, sample_l
 
     with patch.object(gemini_service.adapter, "_sync_generate", return_value=rogue_llm_json):
         files = {
-            "label_image": ("label.jpg", sample_label_bytes, "image/jpeg"),
-            "garment_image": ("garment.jpg", valid_jpeg_bytes, "image/jpeg"),
+            "image": ("label.jpg", sample_label_bytes, "image/jpeg"),
         }
         response = client.post("/api/v1/analyze", files=files)
 
@@ -296,12 +277,11 @@ async def test_guaranteed_image_cleanup_when_pipeline_raises_exception():
     assert mock_garment_proc.cleanup.call_count == 1
 
 
-def test_gemini_service_exception_does_not_destroy_phase5_result(client, sample_label_bytes, valid_jpeg_bytes):
+def test_gemini_service_exception_does_not_destroy_phase5_result(client, sample_label_bytes):
     """TASK 5 & 7: Verify that an unexpected Gemini exception never destroys Phase 5 analytical outputs."""
     with patch.object(gemini_service, "explain_analysis", side_effect=RuntimeError("Unrecoverable Gemini crash")):
         files = {
-            "label_image": ("label.jpg", sample_label_bytes, "image/jpeg"),
-            "garment_image": ("garment.jpg", valid_jpeg_bytes, "image/jpeg"),
+            "image": ("label.jpg", sample_label_bytes, "image/jpeg"),
         }
         response = client.post("/api/v1/analyze", files=files)
 

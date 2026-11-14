@@ -225,6 +225,13 @@ def test_scoring_result_schema():
     with pytest.raises(ValidationError):
         ScoringResult(overall_impact_score=105.0, recommendation="Buy")
 
+    unavailable = ScoringResult(
+        key_indicators={"status": "INSUFFICIENT_DATA", "reason": "Incomplete composition"},
+        calculation_basis="unscored_due_to_invalid_composition",
+    )
+    assert unavailable.overall_impact_score is None
+    assert unavailable.recommendation is None
+
 
 # ==============================================================================
 # 4. Master Unified Response & Serialization Tests

@@ -255,13 +255,15 @@ class ImpactScoreBreakdown(BaseModel):
 class ScoringResult(BaseModel):
     """Authoritative numerical scoring output produced by Maneesh's engine."""
 
-    overall_impact_score: float = Field(
+    overall_impact_score: Optional[float] = Field(
+        default=None,
         ge=0.0,
         le=100.0,
-        description="Composite environmental impact score (0 to 100)",
+        description="Composite environmental impact score (0 to 100), or null when scoring is unavailable",
     )
-    recommendation: str = Field(
-        description="Authoritative action tier (e.g., 'Buy', 'Think Twice', 'Repair', 'Reuse', 'Second-Hand')",
+    recommendation: Optional[str] = Field(
+        default=None,
+        description="Authoritative action tier, or null when scoring is unavailable",
     )
     breakdown: Optional[ImpactScoreBreakdown] = Field(
         default=None,
@@ -350,6 +352,29 @@ class ProductAnalysis(BaseModel):
     )
 
 
+class ImageClassificationMetadata(BaseModel):
+    """Metadata produced by the image-type classification stage."""
+
+    image_type: str = Field(
+        description="Classified image type: GARMENT, LABEL, or UNKNOWN",
+    )
+    classification_confidence: float = Field(
+        ge=0.0,
+        le=1.0,
+        description="Classifier confidence score (0.0 to 1.0)",
+    )
+    classifier_name: str = Field(
+        description="Name of the classifier that produced this result",
+    )
+    analysis_source: str = Field(
+        description="Pipeline branch used: VISION (garment) or OCR (label)",
+    )
+    classification_reasoning: List[str] = Field(
+        default_factory=list,
+        description="Human-readable explanation of classifier signals",
+    )
+
+
 class AnalysisMetadata(BaseModel):
     """Operational metadata regarding the analysis run."""
 
@@ -377,6 +402,10 @@ class AnalysisResponse(BaseModel):
     timestamp: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(),
         description="ISO-8601 timestamp of analysis completion",
+    )
+    image_classification: Optional[ImageClassificationMetadata] = Field(
+        default=None,
+        description="Metadata from the image-type classification stage",
     )
     product: ProductAnalysis = Field(
         description="Fabric composition and visual classification data",

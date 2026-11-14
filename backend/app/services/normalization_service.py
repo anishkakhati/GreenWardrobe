@@ -342,6 +342,12 @@ class NormalizationService:
         )
         warnings.extend(synth_warnings)
 
+        if product.composition_source == AnalysisSource.COMPUTER_VISION:
+            limitations.append(
+                "Fabric blend percentages could not be verified from a care label tag; "
+                "composition is estimated as 100% of the surface-identified fiber for comparative benchmarking."
+            )
+
         # 5. Knowledge Base Retrieval
         environmental_data: Dict[str, Any] = {}
         if product.composition and product.composition.materials:
@@ -372,8 +378,8 @@ class NormalizationService:
                 logger.warning("Scoring calculation error in pipeline: %s", str(e))
                 warnings.append(f"Scoring calculation warning: {str(e)}")
                 impact_assessment = ScoringResult(
-                    overall_impact_score=50.0,
-                    recommendation="Think Twice",
+                    overall_impact_score=None,
+                    recommendation=None,
                     key_indicators={"status": "INSUFFICIENT_DATA", "reason": str(e)},
                     calculation_basis="unscored_due_to_unmapped_materials",
                 )
@@ -381,15 +387,15 @@ class NormalizationService:
                 logger.warning("Scoring failure in pipeline: %s", str(e))
                 warnings.append(f"Scoring engine failure: {str(e)}")
                 impact_assessment = ScoringResult(
-                    overall_impact_score=50.0,
-                    recommendation="Think Twice",
+                    overall_impact_score=None,
+                    recommendation=None,
                     key_indicators={"status": "ENGINE_ERROR", "reason": str(e)},
                     calculation_basis="unscored_due_to_engine_error",
                 )
         else:
             impact_assessment = ScoringResult(
-                overall_impact_score=50.0,
-                recommendation="Think Twice",
+                overall_impact_score=None,
+                recommendation=None,
                 key_indicators={"status": "NO_COMPOSITION_DATA"},
                 calculation_basis="unscored_due_to_missing_composition",
             )

@@ -770,8 +770,9 @@ def test_pipeline_scenario6_unknown_material(make_image_bytes):
 
     # KryptoniteFiber is unknown to both KB and Scoring
     assert any("kryptonitefiber" in w.lower() for w in response.warnings)
-    # Impact assessment must not silently give 0 impact
-    assert response.impact_assessment.overall_impact_score == 50.0
+    # An invalid score remains unavailable instead of receiving a placeholder.
+    assert response.impact_assessment.overall_impact_score is None
+    assert response.impact_assessment.recommendation is None
     assert response.impact_assessment.key_indicators.get("status") == "INSUFFICIENT_DATA"
 
 
