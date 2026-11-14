@@ -28,9 +28,11 @@ class OCRAdapter(BaseOCRAdapter):
         self,
         ocr_reader: Optional[Any] = None,
         custom_parser: Optional[Callable[[str], Dict[str, List[float]]]] = None,
+        custom_extractor: Optional[Callable[[ProcessedImage], OCRResult]] = None,
     ):
         self._reader = ocr_reader
         self._parser = custom_parser or parse_composition
+        self._custom_extractor = custom_extractor
         self._easyocr_available = False
         self._initialized = False
 
@@ -64,6 +66,8 @@ class OCRAdapter(BaseOCRAdapter):
 
     @property
     def is_available(self) -> bool:
+        if self._custom_extractor is not None:
+            return True
         self._ensure_reader()
         return self._easyocr_available or self._reader is not None
 
@@ -85,6 +89,9 @@ class OCRAdapter(BaseOCRAdapter):
     def _sync_extract(self, image: ProcessedImage) -> OCRResult:
         """Synchronous CPU worker executing OpenCV preprocessing and OCR extraction."""
         self._ensure_reader()
+
+        if self._custom_extractor is not None:
+            return self._custom_extractor(image)
 
         # If EasyOCR is unavailable, return an unreadable result with transparent diagnostic warning
         if not self.is_available or self._reader is None:

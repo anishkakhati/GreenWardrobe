@@ -24,6 +24,11 @@ tmp/
 uploads/
 *.log
 
+# Model checkpoints and weights (downloaded locally, excluded from git)
+*.pth
+*.pt
+**/checkpoints/
+
 # macOS
 .DS_Store
 

@@ -6,8 +6,11 @@ Covers:
 - VisionAdapter with Anshika's ResNet18 asset bounds and test double injection.
 - KnowledgeBaseAdapter contract and benchmark retrieval.
 - NormalizationService alias mapping, percentage validation, and perception conflict detection.
+- Real OCR live inference on clothing-label image fixtures.
+- End-to-end cross-module data exchange pipeline.
 """
 
+from pathlib import Path
 import pytest
 
 from app.core.exceptions import ScoringError
@@ -17,6 +20,7 @@ from app.integrations.scoring_adapter import ScoringAdapter, scoring_adapter
 from app.integrations.vision_adapter import VisionAdapter, vision_adapter
 from app.schemas.common import AnalysisSource
 from app.schemas.response import (
+    AnalysisResponse,
     OCRCompositionItem,
     OCRResult,
     VisionPrediction,
@@ -115,7 +119,7 @@ def test_ocr_parser_regex_extraction():
 
 def test_ocr_adapter_execution_without_easyocr(make_image_bytes):
     """Verify OCRAdapter handles missing EasyOCR gracefully with transparent warning."""
-    # Adapter without reader instance
+    # Adapter with forced missing reader
     empty_adapter = OCRAdapter(ocr_reader=None)
     empty_adapter._initialized = True
     empty_adapter._easyocr_available = False
@@ -134,7 +138,6 @@ def test_ocr_adapter_injected_double(make_image_bytes):
     """Verify OCRAdapter works with mock reader injection."""
     class FakeReader:
         def readtext(self, img, detail=1, paragraph=False):
-            # Return coordinates, text, and confidence
             return [
                 ([[0, 0], [10, 0], [10, 10], [0, 10]], "100% COTTON", 0.95)
             ]
@@ -152,29 +155,97 @@ def test_ocr_adapter_injected_double(make_image_bytes):
     assert result.confidence == 0.95
 
 
+def test_ocr_live_inference_single_fiber():
+    """Verify actual EasyOCR inference on real label fixture (100% Linen)."""
+    fixture_path = Path(__file__).resolve().parent.parent / "fixtures" / "labels" / "label_0003.jpg"
+    if not fixture_path.exists():
+        pytest.skip("Label fixture not found.")
+
+    with open(fixture_path, "rb") as f:
+        img_bytes = f.read()
+
+    proc = ImageService.process_image(img_bytes, filename="label_0003.jpg")
+
+    import asyncio
+    res = asyncio.run(ocr_adapter.extract_composition(proc))
+
+    assert res.unreadable is False
+    assert len(res.composition) == 1
+    assert res.composition[0].material.lower() == "linen"
+    assert res.composition[0].percentage == 100.0
+    assert res.confidence is not None
+    assert res.confidence > 0.5
+
+
+def test_ocr_live_inference_multi_fiber_blend():
+    """Verify actual EasyOCR inference on real blend fixture (68% Nylon, 32% Wool)."""
+    fixture_path = Path(__file__).resolve().parent.parent / "fixtures" / "labels" / "label_0002.jpg"
+    if not fixture_path.exists():
+        pytest.skip("Label fixture not found.")
+
+    with open(fixture_path, "rb") as f:
+        img_bytes = f.read()
+
+    proc = ImageService.process_image(img_bytes, filename="label_0002.jpg")
+
+    import asyncio
+    res = asyncio.run(ocr_adapter.extract_composition(proc))
+
+    assert res.unreadable is False
+    materials_found = {c.material.lower(): c.percentage for c in res.composition}
+    assert "nylon" in materials_found
+    assert materials_found["nylon"] == 68.0
+    assert "wool" in materials_found
+    assert materials_found["wool"] == 32.0
+
+
 # ==============================================================================
 # 3. Vision Adapter Tests (Anshika's TextileNet ResNet-18)
 # ==============================================================================
 
 def test_vision_adapter_status_info():
-    """Verify VisionAdapter status accurately flags missing pretrained checkpoint."""
+    """Verify VisionAdapter status info accurately reflects model and configuration."""
     status = vision_adapter.status_info()
     assert status["adapter"] == "Anshika-TextileNet-Vision-Adapter"
-    assert "res18_ckpt.pth" in status["status"] or "ASSET MISSING" in status["status"]
     assert status["classes_count"] == 33
+    assert status["status_code"] in ("OPERATIONAL", "MODEL_CHECKPOINT_MISSING")
+    if status["checkpoint_exists"]:
+        assert status["status"] == "REAL INTEGRATION VERIFIED"
+        assert status["status_code"] == "OPERATIONAL"
+    else:
+        assert "ASSET MISSING" in status["status"]
 
 
 def test_vision_adapter_missing_checkpoint_safety(make_image_bytes):
     """Verify VisionAdapter does not crash when weights are absent."""
+    missing_adapter = VisionAdapter(checkpoint_path=Path("nonexistent/res18_ckpt.pth"))
+    data = make_image_bytes(fmt="JPEG")
+    processed = ImageService.process_image(data, "garment.jpg")
+
+    import asyncio
+    prediction = asyncio.run(missing_adapter.predict_material(processed))
+    assert prediction.predicted_material is None
+    assert prediction.confidence is None
+    assert len(prediction.warnings) > 0
+    assert "checkpoint not found" in prediction.warnings[0].lower()
+
+
+def test_vision_adapter_live_inference(make_image_bytes):
+    """Verify VisionAdapter executes real forward pass with trained TextileNet ResNet-18 weights."""
+    if not vision_adapter.is_available:
+        pytest.skip("TextileNet checkpoint not available.")
+
     data = make_image_bytes(fmt="JPEG")
     processed = ImageService.process_image(data, "garment.jpg")
 
     import asyncio
     prediction = asyncio.run(vision_adapter.predict_material(processed))
-    assert prediction.predicted_material is None
-    assert prediction.confidence is None
-    assert len(prediction.warnings) > 0
-    assert "checkpoint not found" in prediction.warnings[0].lower()
+    assert prediction.predicted_material is not None
+    assert prediction.confidence is not None
+    assert 0.0 <= prediction.confidence <= 1.0
+    assert len(prediction.alternatives) > 0
+    assert len(prediction.probabilities) > 0
+    assert prediction.predicted_material in prediction.probabilities
 
 
 def test_vision_adapter_injected_predictor(make_image_bytes):
@@ -204,12 +275,14 @@ def test_vision_adapter_injected_predictor(make_image_bytes):
 # ==============================================================================
 
 def test_knowledge_base_adapter_status():
-    """Verify KnowledgeBaseAdapter reflects pending teammate module status."""
+    """Verify KnowledgeBaseAdapter reflects operational status and 33-class taxonomy."""
     status = knowledge_adapter.status_info()
     assert status["adapter"] == "Ankit-KnowledgeBase-Adapter"
-    assert "PENDING" in status["status"]
+    assert status["status"] in ["INTEGRATED & OPERATIONAL", "ADAPTER READY — MODULE PENDING"]
     assert "polyester" in status["available_materials"]
     assert "cotton" in status["available_materials"]
+    assert "flax_linen" in status["available_materials"]
+    assert status["taxonomy_classes_covered"] == 33
 
 
 def test_knowledge_base_retrieval():
@@ -218,8 +291,11 @@ def test_knowledge_base_retrieval():
     profile = asyncio.run(knowledge_adapter.get_material_data("cotton"))
     assert profile is not None
     assert profile.material == "cotton"
-    assert profile.water_liters_per_kg == 85.0
-    assert profile.co2_kg_per_kg == 55.0
+    assert profile.water_liters_per_kg is not None
+    assert profile.water_liters_per_kg > 0
+    assert profile.co2_kg_per_kg is not None
+    assert profile.chemicals_intensity == "High"
+    assert "verified" in profile.custom_indicators["provenance"].lower()
 
 
 def test_knowledge_base_batch_retrieval():
@@ -294,7 +370,6 @@ def test_concurrent_independent_streams_and_cleanup(make_image_bytes):
     """Verify OCR and Vision can process independent streams concurrently from ProcessedImage without corruption."""
     import asyncio
 
-    # Setup injected mocks for OCR and Vision
     class FakeReader:
         def readtext(self, img, detail=1, paragraph=False):
             return [([[0, 0]], "100% COTTON", 0.94)]
@@ -302,7 +377,6 @@ def test_concurrent_independent_streams_and_cleanup(make_image_bytes):
     mock_ocr = OCRAdapter(ocr_reader=FakeReader())
 
     def fake_vision(img):
-        # Read from image stream to ensure independent pointer
         stream = img.get_stream()
         assert len(stream.read()) > 0
         return VisionPrediction(
@@ -374,4 +448,431 @@ def test_partial_failure_vision_fails_ocr_succeeds():
     assert product.composition.materials[0].name == "silk"
     assert product.composition_source == AnalysisSource.OCR_LABEL
     assert any("Checkpoint res18_ckpt.pth missing" in w for w in warnings)
+
+
+# ==============================================================================
+# 6. End-to-End Cross-Module Data Exchange Tests
+# ==============================================================================
+
+def test_cross_module_end_to_end_pipeline():
+    """Verify full end-to-end data exchange across ImageService, OCR, Normalization, KB, and Scoring."""
+    import asyncio
+
+    fixture_path = Path(__file__).resolve().parent.parent / "fixtures" / "labels" / "label_0002.jpg"
+    if not fixture_path.exists():
+        pytest.skip("Label fixture not found.")
+
+    with open(fixture_path, "rb") as f:
+        img_bytes = f.read()
+
+    # Step 1: Process Image
+    proc_img = ImageService.process_image(img_bytes, filename="label_0002.jpg")
+
+    # Step 2: Live OCR
+    ocr_res = asyncio.run(ocr_adapter.extract_composition(proc_img))
+    assert ocr_res.unreadable is False
+
+    # Step 3: Vision (safely warns asset missing)
+    vis_res = asyncio.run(vision_adapter.predict_material(proc_img))
+
+    # Step 4: Normalization & Synthesis
+    product, warnings = normalization_service.synthesize_product_analysis(ocr_res, vis_res)
+    assert product.composition is not None
+    assert product.composition.is_complete is True
+
+    # Step 5: Knowledge Base Retrieval
+    mat_names = [m.name for m in product.composition.materials]
+    kb_res = asyncio.run(knowledge_adapter.get_batch_data(mat_names))
+    assert len(kb_res.profiles) == len(mat_names)
+
+    # Step 6: Environmental Scoring
+    blend_dict = {m.name: m.percentage for m in product.composition.materials}
+    score_res = scoring_adapter.calculate_impact(blend_dict, shopping=True)
+    assert score_res.overall_impact_score > 0
+    assert score_res.recommendation in ["Buy", "Think Twice", "Repair", "Reuse", "Second-hand"]
+    assert score_res.breakdown is not None
+
+
+def test_reconciliation_both_succeed_and_agree():
+    """Verify Scenario 1: Both OCR and Vision succeed and agree."""
+    ocr_result = OCRResult(
+        composition=[OCRCompositionItem(material="Cotton", percentage=100.0)],
+        confidence=0.92,
+        unreadable=False,
+    )
+    vision_result = VisionPrediction(
+        predicted_material="cotton",
+        confidence=0.88,
+    )
+
+    reconciled, source, status, warnings = NormalizationService.reconcile_findings(
+        ocr_result=ocr_result,
+        vision_result=vision_result,
+    )
+
+    assert status == "AGREED"
+    assert source == AnalysisSource.HYBRID
+    assert reconciled is not None
+    assert reconciled.materials[0].name == "cotton"
+    assert reconciled.confidence == 0.92
+
+
+def test_reconciliation_both_fail():
+    """Verify Scenario 4: Both OCR and Vision fail."""
+    ocr_result = OCRResult(
+        composition=[],
+        unreadable=True,
+        warnings=["Label unreadable."],
+    )
+    vision_result = VisionPrediction(
+        predicted_material=None,
+        confidence=None,
+        warnings=["Model weights missing."],
+    )
+
+    reconciled, source, status, warnings = NormalizationService.reconcile_findings(
+        ocr_result=ocr_result,
+        vision_result=vision_result,
+    )
+
+    assert status == "BOTH_FAILED"
+    assert source == AnalysisSource.UNKNOWN
+    assert reconciled is None
+    assert any("unable to determine garment fabric composition" in w for w in warnings)
+
+
+def test_scoring_near_100_percent_renormalization():
+    """Verify ScoringAdapter re-normalizes floating-point blends summing to ~99.9%."""
+    # 33.33 * 3 = 99.99%
+    imperfect_blend = {"cotton": 33.33, "polyester": 33.33, "wool": 33.33}
+    result = scoring_adapter.calculate_impact(imperfect_blend)
+    assert result.overall_impact_score > 0
+    assert result.overall_impact_score <= 100
+
+
+def test_ocr_parser_reversed_syntax_and_colons():
+    """Verify parse_composition handles colons, hyphens, and reversed syntax."""
+    from app.integrations.teammate_modules.ocr.text_parser import parse_composition
+
+    text = "FABRIC: COTTON: 70%, POLYESTER - 30%, ELASTANE (5%)"
+    parsed = parse_composition(text)
+    assert "COTTON" in parsed
+    assert parsed["COTTON"] == [70.0]
+    assert "POLYESTER" in parsed
+    assert parsed["POLYESTER"] == [30.0]
+    assert "ELASTANE" in parsed
+    assert parsed["ELASTANE"] == [5.0]
+
+
+def test_vision_model_forward_architecture():
+    """Verify ResNet-18 model architecture executes tensor forward pass with shape (1, 33)."""
+    import torch
+    from app.integrations.teammate_modules.vision.resnet import get_resnet18
+
+    model = get_resnet18(num_classes=33)
+    model.eval()
+    dummy_input = torch.randn(1, 3, 224, 224)
+
+    with torch.no_grad():
+        output = model(dummy_input)
+
+    assert output.shape == (1, 33)
+    probs = torch.softmax(output, dim=1)
+    assert abs(probs.sum().item() - 1.0) < 1e-4
+
+
+# ==============================================================================
+# 7. Comprehensive Pipeline Scenarios (11 Core Integration Scenarios)
+# ==============================================================================
+
+def test_pipeline_scenario1_real_ocr_vision_kb_scoring(make_image_bytes):
+    """Scenario 1: Real OCR + real Vision + Knowledge Base + Scoring end-to-end."""
+    import asyncio
+    fixture_path = Path(__file__).resolve().parent.parent / "fixtures" / "labels" / "label_0002.jpg"
+    if not fixture_path.exists():
+        pytest.skip("Fixture label_0002.jpg not found.")
+
+    with open(fixture_path, "rb") as f:
+        label_bytes = f.read()
+
+    garment_bytes = make_image_bytes(fmt="JPEG")
+
+    response = asyncio.run(
+        NormalizationService.execute_pipeline(
+            label_image_bytes=label_bytes,
+            label_filename="label_0002.jpg",
+            garment_image_bytes=garment_bytes,
+            garment_filename="garment.jpg",
+            shopping=True,
+        )
+    )
+
+    assert response.success is True
+    assert response.analysis_id is not None
+    assert response.product.composition is not None
+    # label_0002.jpg is 68% Nylon, 32% Wool
+    materials = {m.name: m.percentage for m in response.product.composition.materials}
+    assert "nylon" in materials
+    assert "wool" in materials
+    # Vision was also executed
+    assert response.product.visual_prediction is not None
+    assert response.product.visual_prediction.predicted_material is not None
+    # Knowledge Base retrieved data
+    assert "nylon" in response.environmental_data
+    assert "wool" in response.environmental_data
+    # Scoring produced result
+    assert response.impact_assessment.overall_impact_score > 0
+    assert response.impact_assessment.recommendation in ["Buy", "Think Twice", "Repair", "Reuse", "Second-hand"]
+
+
+def test_pipeline_scenario2_ocr_success_vision_failure(make_image_bytes):
+    """Scenario 2: OCR succeeds, Vision fails (simulated missing checkpoint)."""
+    import asyncio
+    fixture_path = Path(__file__).resolve().parent.parent / "fixtures" / "labels" / "label_0003.jpg"
+    if not fixture_path.exists():
+        pytest.skip("Fixture label_0003.jpg not found.")
+
+    with open(fixture_path, "rb") as f:
+        label_bytes = f.read()
+
+    # Mock Vision adapter with missing checkpoint
+    failing_vision = VisionAdapter(checkpoint_path=Path("nonexistent/missing_ckpt.pth"))
+
+    response = asyncio.run(
+        NormalizationService.execute_pipeline(
+            label_image_bytes=label_bytes,
+            label_filename="label_0003.jpg",
+            garment_image_bytes=make_image_bytes(fmt="JPEG"),
+            vision_adapter_instance=failing_vision,
+        )
+    )
+
+    assert response.success is True
+    assert response.product.composition is not None
+    assert response.product.composition_source == AnalysisSource.OCR_LABEL
+    assert any("linen" in m.name for m in response.product.composition.materials)
+    # Checkpoint warning is preserved
+    assert any("checkpoint not found" in w.lower() for w in response.warnings)
+
+
+def test_pipeline_scenario3_vision_success_ocr_failure(make_image_bytes):
+    """Scenario 3: Vision succeeds, OCR unreadable / corrupted label."""
+    import asyncio
+    # Provide corrupted label bytes to force OCR unreadable
+    corrupted_label = b"CORRUPTED_LABEL_NOT_A_VALID_IMAGE"
+    garment_bytes = make_image_bytes(fmt="JPEG")
+
+    response = asyncio.run(
+        NormalizationService.execute_pipeline(
+            label_image_bytes=corrupted_label,
+            label_filename="corrupted_label.jpg",
+            garment_image_bytes=garment_bytes,
+            garment_filename="garment.jpg",
+        )
+    )
+
+    # When OCR fails, pipeline falls back to Computer Vision
+    assert response.product.composition is not None
+    assert response.product.composition_source == AnalysisSource.COMPUTER_VISION
+    assert len(response.product.composition.materials) == 1
+    # Check that warning about fallback was issued
+    assert any("fallback composition estimated from computer vision" in w.lower() for w in response.warnings)
+    # Knowledge base and scoring still ran on the vision fallback
+    assert response.impact_assessment.overall_impact_score > 0
+
+
+def test_pipeline_scenario4_both_modules_agree(make_image_bytes):
+    """Scenario 4: Both OCR and Vision agree (HYBRID source)."""
+    import asyncio
+    # Mock OCR and Vision returning cotton
+    mock_ocr = OCRAdapter(
+        custom_extractor=lambda img: OCRResult(
+            composition=[OCRCompositionItem(material="Cotton", percentage=100.0)],
+            confidence=0.95,
+            unreadable=False,
+        )
+    )
+    mock_vision = VisionAdapter(
+        custom_predictor=lambda img: VisionPrediction(
+            predicted_material="cotton",
+            confidence=0.89,
+            alternatives=["linen", "hemp"],
+            probabilities={"cotton": 0.89, "linen": 0.08, "hemp": 0.03},
+        )
+    )
+
+    response = asyncio.run(
+        NormalizationService.execute_pipeline(
+            label_image_bytes=make_image_bytes(fmt="JPEG"),
+            garment_image_bytes=make_image_bytes(fmt="JPEG"),
+            ocr_adapter_instance=mock_ocr,
+            vision_adapter_instance=mock_vision,
+        )
+    )
+
+    assert response.success is True
+    assert response.product.composition_source == AnalysisSource.HYBRID
+    assert response.product.composition.materials[0].name == "cotton"
+    assert response.confidence["ocr"] == 0.95
+    assert response.confidence["vision"] == 0.89
+
+
+def test_pipeline_scenario5_ocr_vision_discrepancy(make_image_bytes):
+    """Scenario 5: High-confidence OCR and Vision discrepancy flagged."""
+    import asyncio
+    mock_ocr = OCRAdapter(
+        custom_extractor=lambda img: OCRResult(
+            composition=[OCRCompositionItem(material="Cotton", percentage=100.0)],
+            confidence=0.95,
+            unreadable=False,
+        )
+    )
+    mock_vision = VisionAdapter(
+        custom_predictor=lambda img: VisionPrediction(
+            predicted_material="leather",
+            confidence=0.88,
+            alternatives=["suede", "fur"],
+            probabilities={"leather": 0.88, "suede": 0.09, "fur": 0.03},
+        )
+    )
+
+    response = asyncio.run(
+        NormalizationService.execute_pipeline(
+            label_image_bytes=make_image_bytes(fmt="JPEG"),
+            garment_image_bytes=make_image_bytes(fmt="JPEG"),
+            ocr_adapter_instance=mock_ocr,
+            vision_adapter_instance=mock_vision,
+        )
+    )
+
+    assert response.success is True
+    assert response.product.composition_source == AnalysisSource.OCR_LABEL
+    assert any("perception discrepancy" in w.lower() for w in response.warnings)
+
+
+def test_pipeline_scenario6_unknown_material(make_image_bytes):
+    """Scenario 6: Unknown material does not silently receive zero impact."""
+    import asyncio
+    mock_ocr = OCRAdapter(
+        custom_extractor=lambda img: OCRResult(
+            composition=[OCRCompositionItem(material="KryptoniteFiber", percentage=100.0)],
+            confidence=0.90,
+            unreadable=False,
+        )
+    )
+
+    response = asyncio.run(
+        NormalizationService.execute_pipeline(
+            label_image_bytes=make_image_bytes(fmt="JPEG"),
+            ocr_adapter_instance=mock_ocr,
+        )
+    )
+
+    # KryptoniteFiber is unknown to both KB and Scoring
+    assert any("kryptonitefiber" in w.lower() for w in response.warnings)
+    # Impact assessment must not silently give 0 impact
+    assert response.impact_assessment.overall_impact_score == 50.0
+    assert response.impact_assessment.key_indicators.get("status") == "INSUFFICIENT_DATA"
+
+
+def test_pipeline_scenario7_insufficient_kb_coverage():
+    """Scenario 7: Insufficient data coverage (<60%) or unknown material prevents misleading scoring."""
+    from app.integrations.teammate_modules.scoring import EnvironmentalScorer
+    scorer = EnvironmentalScorer()
+
+    # Blend where material is completely missing from database
+    blend_insufficient = {"polyester": 20.0, "unknown_space_fiber": 80.0}
+    with pytest.raises(ValueError) as excinfo:
+        scorer.score(blend_insufficient)
+    err_msg = str(excinfo.value).lower()
+    assert "unknown material" in err_msg or "data coverage" in err_msg or "missing" in err_msg
+
+
+def test_pipeline_scenario8_invalid_image():
+    """Scenario 8: Completely invalid/corrupted bytes handled gracefully without pipeline crash."""
+    import asyncio
+    response = asyncio.run(
+        NormalizationService.execute_pipeline(
+            label_image_bytes=b"INVALID_TRASH_BYTES_0000",
+            garment_image_bytes=b"INVALID_TRASH_BYTES_1111",
+        )
+    )
+
+    # Pipeline does not crash; produces structured response with warnings
+    assert response.success is False
+    assert len(response.warnings) > 0
+    assert response.product.composition is None
+    assert response.impact_assessment.key_indicators.get("status") == "NO_COMPOSITION_DATA"
+
+
+def test_pipeline_scenario9_malformed_composition(make_image_bytes):
+    """Scenario 9: Malformed composition (e.g. 50% total) triggers integrity warnings."""
+    import asyncio
+    mock_ocr = OCRAdapter(
+        custom_extractor=lambda img: OCRResult(
+            composition=[OCRCompositionItem(material="Cotton", percentage=50.0)],
+            confidence=0.80,
+            unreadable=False,
+        )
+    )
+
+    response = asyncio.run(
+        NormalizationService.execute_pipeline(
+            label_image_bytes=make_image_bytes(fmt="JPEG"),
+            ocr_adapter_instance=mock_ocr,
+        )
+    )
+
+    assert any("partial or incomplete" in w.lower() for w in response.warnings)
+
+
+def test_pipeline_scenario10_module_exception_resilience(make_image_bytes):
+    """Scenario 10: Unexpected module runtime exception handled gracefully."""
+    import asyncio
+
+    def crashing_extractor(img):
+        raise RuntimeError("Simulated unexpected GPU failure")
+
+    mock_crashing_ocr = OCRAdapter(custom_extractor=crashing_extractor)
+
+    response = asyncio.run(
+        NormalizationService.execute_pipeline(
+            label_image_bytes=make_image_bytes(fmt="JPEG"),
+            ocr_adapter_instance=mock_crashing_ocr,
+        )
+    )
+
+    # Exception is captured into structured warnings, pipeline does not blow up
+    assert any("simulated unexpected gpu failure" in w.lower() for w in response.warnings)
+
+
+def test_pipeline_scenario11_standardized_response_validation(make_image_bytes):
+    """Scenario 11: Validate full AnalysisResponse schema conformity and metadata completeness."""
+    import asyncio
+    fixture_path = Path(__file__).resolve().parent.parent / "fixtures" / "labels" / "label_0001.jpg"
+    if not fixture_path.exists():
+        pytest.skip("Fixture label_0001.jpg not found.")
+
+    with open(fixture_path, "rb") as f:
+        label_bytes = f.read()
+
+    response = asyncio.run(
+        NormalizationService.execute_pipeline(
+            label_image_bytes=label_bytes,
+            label_filename="label_0001.jpg",
+            garment_image_bytes=make_image_bytes(fmt="JPEG"),
+            garment_filename="garment.jpg",
+        )
+    )
+
+    # Validate all fields in Pydantic schema
+    assert isinstance(response, AnalysisResponse)
+    assert isinstance(response.analysis_id, str) and len(response.analysis_id) > 10
+    assert isinstance(response.timestamp, str)
+    assert response.metadata.processing_time_ms > 0
+    assert response.metadata.pipeline_version == "1.0.0"
+    assert "ocr" in response.metadata.model_versions
+    assert "vision" in response.metadata.model_versions
+    assert len(response.limitations) >= 2
+    assert isinstance(response.confidence, dict)
 

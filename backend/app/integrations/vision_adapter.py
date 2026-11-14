@@ -29,9 +29,20 @@ class VisionAdapter(BaseVisionAdapter):
         model_instance: Optional[Any] = None,
         custom_predictor: Optional[Callable[[ProcessedImage], VisionPrediction]] = None,
     ):
-        self._checkpoint_path = checkpoint_path or Path(
-            os.getenv("VISION_CHECKPOINT_PATH", "models/res18_ckpt.pth")
+        canonical_ckpt = (
+            Path(__file__).resolve().parent / "teammate_modules" / "vision" / "checkpoints" / "res18_ckpt.pth"
         )
+        env_ckpt = os.getenv("VISION_CHECKPOINT_PATH")
+
+        if checkpoint_path is not None:
+            self._checkpoint_path = checkpoint_path
+        elif env_ckpt:
+            self._checkpoint_path = Path(env_ckpt)
+        elif canonical_ckpt.exists():
+            self._checkpoint_path = canonical_ckpt
+        else:
+            self._checkpoint_path = Path("models/res18_ckpt.pth")
+
         self._labels_path = labels_path or (
             Path(__file__).resolve().parent / "teammate_modules" / "vision" / "labels" / "fibre_label.txt"
         )
@@ -70,7 +81,7 @@ class VisionAdapter(BaseVisionAdapter):
 
             if not self._checkpoint_path.exists():
                 logger.warning(
-                    "TextileNet checkpoint not found at '%s'. Vision adapter will report asset pending.",
+                    "TextileNet checkpoint not found at '%s'. Vision adapter will report MODEL_CHECKPOINT_MISSING.",
                     self._checkpoint_path,
                 )
                 self._model = None
@@ -111,18 +122,24 @@ class VisionAdapter(BaseVisionAdapter):
         self._ensure_model()
         if self.is_available:
             status_label = "REAL INTEGRATION VERIFIED"
+            status_code = "OPERATIONAL"
         elif not self._checkpoint_path.exists():
             status_label = "BLOCKED — DEPENDENCY OR ASSET MISSING (WEIGHTS: res18_ckpt.pth)"
+            status_code = "MODEL_CHECKPOINT_MISSING"
         else:
             status_label = "CODE CONNECTED BUT NOT INFERENCE VERIFIED"
+            status_code = "CHECKPOINT_UNVERIFIED"
 
         return {
             "adapter": self.adapter_name,
             "status": status_label,
+            "status_code": status_code,
             "architecture": "ResNet-18 (TextileNet)",
             "classes_count": len(self._class_names),
             "checkpoint_configured": str(self._checkpoint_path),
             "checkpoint_exists": self._checkpoint_path.exists(),
+            "upstream_repository": "https://github.com/hahashu/TextileNet",
+            "required_asset": "res18_ckpt.pth",
         }
 
     def _sync_predict(self, image: ProcessedImage) -> VisionPrediction:
@@ -140,8 +157,8 @@ class VisionAdapter(BaseVisionAdapter):
                 confidence=None,
                 alternatives=[],
                 warnings=[
-                    f"Computer vision model checkpoint not found at '{self._checkpoint_path}'. "
-                    "Pretrained TextileNet weights are required for visual prediction."
+                    f"Computer vision model checkpoint not found at '{self._checkpoint_path}' (status: MODEL_CHECKPOINT_MISSING). "
+                    "Pretrained TextileNet weights (res18_ckpt.pth) are required for visual prediction."
                 ],
             )
 

@@ -53,8 +53,12 @@ class ScoringAdapter(BaseScoringAdapter):
         return {
             "adapter": self.adapter_name,
             "status": "REAL INTEGRATION VERIFIED" if self.is_available else "FAILED_INITIALIZATION",
+            "owner": "Maneesh Kumar",
             "weights_configured": list(self._scorer.weights.keys()) if self._scorer else [],
             "available_materials_count": len(self._scorer.data.index) if self._scorer else 0,
+            "provenance": "Rule-based engine with DEMO PLACEHOLDER benchmarks; not certified laboratory LCA measurements.",
+            "coverage_rule": "Enforces 60% minimum data coverage threshold.",
+            "categories": ["water", "carbon", "energy", "chemicals", "microfibres", "waste"],
         }
 
     def calculate_impact(
@@ -80,8 +84,17 @@ class ScoringAdapter(BaseScoringAdapter):
             )
 
         try:
+            # Re-normalize slight floating point rounding discrepancies (e.g., 99.9% or 100.1%)
+            total_pct = sum(float(v) for v in composition.values() if v is not None)
+            clean_comp = dict(composition)
+            if 98.0 <= total_pct <= 102.0 and not (99.99 <= total_pct <= 100.01):
+                clean_comp = {
+                    k: round((float(v) / total_pct) * 100.0, 4)
+                    for k, v in composition.items()
+                }
+
             # 1. Execute actual environmental scoring
-            score_data = self._scorer.score(composition)
+            score_data = self._scorer.score(clean_comp)
 
             # 2. Execute actual recommendation rules
             rec_data = self._recommendation_engine.recommend(

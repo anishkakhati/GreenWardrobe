@@ -1,6 +1,7 @@
 """Textile label OCR text extraction and composition parsing logic.
 
 Imported from Harshit's Clothing Label OCR module (origin/feature/-clothing-label-ocr).
+Enhanced with robust boundary matching for colons, hyphens, and reversed material orders.
 """
 
 import re
@@ -8,9 +9,11 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 # Fibres officially recognized and evaluated in Harshit's OCR module
+# + standard apparel extensions
 SUPPORTED_FIBRES: List[str] = [
     "COTTON", "POLYESTER", "VISCOSE", "ELASTANE",
-    "NYLON", "WOOL", "ACRYLIC", "LINEN", "MODAL", "SILK"
+    "NYLON", "WOOL", "ACRYLIC", "LINEN", "MODAL", "SILK",
+    "HEMP", "CASHMERE", "LYOCELL", "CUPRO", "RAMIE", "SPANDEX", "RAYON", "FLAX"
 ]
 
 
@@ -24,17 +27,19 @@ def normalize_text(text: str) -> str:
 def parse_composition(text: str) -> Dict[str, List[float]]:
     """Parse material names and their numerical percentages from text.
 
-    Supports both formats:
-    - '80% COTTON'
-    - 'COTTON 80%'
+    Supports multiple formats:
+    - Standard: '80% COTTON' or '80 % COTTON' or '80% OF COTTON'
+    - Reversed: 'COTTON 80%' or 'COTTON: 80%' or 'COTTON - 80%'
+    - Parenthetical: 'COTTON (80%)'
     """
     normalized = normalize_text(text)
     composition: Dict[str, List[float]] = {}
 
     for fibre in SUPPORTED_FIBRES:
         patterns = [
-            rf"(\d+(?:\.\d+)?)\s*%\s*{fibre}\b",
-            rf"\b{fibre}\s*(\d+(?:\.\d+)?)\s*%",
+            rf"(\d+(?:\.\d+)?)\s*%\s*(?:OF\s+)?{fibre}\b",
+            rf"\b{fibre}\s*[:\-\s]?\s*(\d+(?:\.\d+)?)\s*%",
+            rf"\b{fibre}\s*\(\s*(\d+(?:\.\d+)?)\s*%\s*\)",
         ]
 
         for pattern in patterns:
