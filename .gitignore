@@ -1,0 +1,19 @@
+# Python generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local environments and secrets
+.venv/
+venv/
+.env
+
+# OS files
+.DS_Store
+
+# Local computer-vision datasets and checkpoints
+computer-vision/data/
+computer-vision/datasets/
+computer-vision/checkpoints/
+computer-vision/**/*.pth
+computer-vision/**/*.pt
