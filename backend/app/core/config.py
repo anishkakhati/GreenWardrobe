@@ -42,7 +42,7 @@ class Settings(BaseSettings):
         default="",
         description="Google Gemini API key obtained from Google AI Studio"
     )
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     GEMINI_TIMEOUT_SECONDS: int = 30
 
     model_config = SettingsConfigDict(
