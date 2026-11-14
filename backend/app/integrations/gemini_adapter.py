@@ -216,12 +216,12 @@ REQUIRED JSON SCHEMA:
         Strictly avoids presenting general textile properties as empirical measurements.
         Does not invent missing environmental measurements or fabricate category scores.
         """
-        product = analysis_data.get("product", {})
+        product = analysis_data.get("product") or {}
         composition = product.get("composition") or {}
         materials = composition.get("materials", [])
-        impact = analysis_data.get("impact_assessment", {})
-        score = impact.get("overall_impact_score", 50.0)
-        rec = impact.get("recommendation", "Think Twice")
+        impact = analysis_data.get("impact_assessment") or {}
+        score = impact.get("overall_impact_score")
+        rec = impact.get("recommendation")
         breakdown = impact.get("breakdown") or {}
         env_data = analysis_data.get("environmental_data") or {}
         warnings = analysis_data.get("warnings") or []
@@ -236,10 +236,27 @@ REQUIRED JSON SCHEMA:
         else:
             mat_desc = "Unidentified textile blend"
 
-        summary = (
-            f"This garment is composed of {mat_desc}, receiving an overall comparative environmental impact score of "
-            f"{score:.1f}/100 with a recommended action tier of '{rec}'."
-        )
+        # Formulate summary handling presence or absence of score and recommendation
+        if score is not None and rec:
+            summary = (
+                f"This garment is composed of {mat_desc}, receiving an overall comparative environmental impact score of "
+                f"{score:.1f}/100 with a recommended action tier of '{rec}'."
+            )
+        elif score is not None and not rec:
+            summary = (
+                f"This garment is composed of {mat_desc}, receiving an overall comparative environmental impact score of "
+                f"{score:.1f}/100; no recommendation tier was produced."
+            )
+        elif score is None and rec:
+            summary = (
+                f"This garment is composed of {mat_desc}; an overall comparative environmental impact score is unavailable, "
+                f"with a recommended action tier of '{rec}'."
+            )
+        else:
+            summary = (
+                f"This garment is composed of {mat_desc}; an overall comparative environmental impact score is unavailable, "
+                "and no recommendation tier was produced."
+            )
 
         # 2. Material explanation strictly grounded in reference data
         if materials:
@@ -250,11 +267,26 @@ REQUIRED JSON SCHEMA:
         else:
             material_explanation = "Textile composition could not be definitively extracted from input images."
 
-        # 3. Overall environmental impact explanation
-        env_impact_explanation = (
-            f"The garment achieved an overall comparative impact score of {score:.1f}/100 with a recommendation of '{rec}'. "
-            "This score represents a comparative index relative to published benchmark baselines, rather than an empirical laboratory measurement."
-        )
+        # 3. Overall environmental impact explanation handling presence or absence of score and recommendation
+        if score is not None and rec:
+            env_impact_explanation = (
+                f"The garment achieved an overall comparative impact score of {score:.1f}/100 with a recommendation of '{rec}'. "
+                "This score represents a comparative index relative to published benchmark baselines, rather than an empirical laboratory measurement."
+            )
+        elif score is not None and not rec:
+            env_impact_explanation = (
+                f"The garment achieved an overall comparative impact score of {score:.1f}/100; no recommendation tier was produced. "
+                "This score represents a comparative index relative to published benchmark baselines, rather than an empirical laboratory measurement."
+            )
+        elif score is None and rec:
+            env_impact_explanation = (
+                f"An overall comparative impact score is unavailable for this garment; the pipeline produced a recommendation tier of '{rec}' "
+                "based on available partial indicators."
+            )
+        else:
+            env_impact_explanation = (
+                "An overall comparative impact score and recommendation tier are unavailable for this garment due to insufficient data coverage."
+            )
 
         # 4. Environmental Highlights grounded strictly in available Phase 5 data
         highlights: List[str] = []
@@ -314,22 +346,28 @@ REQUIRED JSON SCHEMA:
                 )
 
         # 6. Practical recommendations based on recommendation tier
-        recommendations = [f"Recommended decision tier: {rec}."]
-        if rec == "Buy":
+        recommendations = []
+        if rec:
+            recommendations.append(f"Recommended decision tier: {rec}.")
+            if rec == "Buy":
+                recommendations.append(
+                    "Garment exhibits a relatively low environmental impact compared to benchmark baselines. Choose durable items you plan to wear 30+ times."
+                )
+            elif rec == "Think Twice":
+                recommendations.append(
+                    "Garment exhibits elevated resource intensity in benchmark comparisons. Consider whether this item fits long-term wardrobe needs."
+                )
+            elif rec in ["Repair", "Reuse"]:
+                recommendations.append(
+                    "Prioritize garment care, mending, and extended use over purchasing new replacements."
+                )
+            elif rec == "Second-hand":
+                recommendations.append(
+                    "Considering a second-hand garment may extend the useful life of an existing item and can reduce demand for new production; the actual environmental benefit depends on the item's use and what it replaces."
+                )
+        else:
             recommendations.append(
-                "Garment exhibits a relatively low environmental impact compared to benchmark baselines. Choose durable items you plan to wear 30+ times."
-            )
-        elif rec == "Think Twice":
-            recommendations.append(
-                "Garment exhibits elevated resource intensity in benchmark comparisons. Consider whether this item fits long-term wardrobe needs."
-            )
-        elif rec in ["Repair", "Reuse"]:
-            recommendations.append(
-                "Prioritize garment care, mending, and extended use over purchasing new replacements."
-            )
-        elif rec == "Second-hand":
-            recommendations.append(
-                "Sourcing this material blend second-hand significantly offsets virgin production impacts."
+                "No recommendation tier was produced; review individual material care guidelines and composition details before making purchasing or disposal decisions."
             )
 
         # 7. Care & repair tips clearly identified as general advice

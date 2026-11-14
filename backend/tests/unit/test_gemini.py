@@ -329,6 +329,100 @@ def test_gemini_fallback_preserves_actual_composition_scores_and_tier(sample_ana
     assert "comparative benchmarks" in fallback.data_quality_disclaimer.lower()
 
 
+def test_gemini_fallback_missing_overall_impact_score(sample_analysis_data):
+    """Verify fallback handles missing overall_impact_score without fabricating 50.0."""
+    adapter = GeminiAdapter(api_key="")
+    data = deepcopy(sample_analysis_data)
+    del data["impact_assessment"]["overall_impact_score"]
+
+    fallback = adapter.generate_fallback(data, reason="Missing overall score")
+
+    assert fallback.is_fallback is True
+    assert "score is unavailable" in fallback.summary.lower()
+    assert "50.0" not in fallback.summary
+    assert "Think Twice" in fallback.summary
+    assert fallback.practical_recommendations[0] == "Recommended decision tier: Think Twice."
+    assert "score is unavailable" in fallback.environmental_impact_explanation.lower()
+
+
+def test_gemini_fallback_overall_impact_score_none(sample_analysis_data):
+    """Verify fallback handles overall_impact_score explicitly set to None."""
+    adapter = GeminiAdapter(api_key="")
+    data = deepcopy(sample_analysis_data)
+    data["impact_assessment"]["overall_impact_score"] = None
+
+    fallback = adapter.generate_fallback(data, reason="None overall score")
+
+    assert fallback.is_fallback is True
+    assert "score is unavailable" in fallback.summary.lower()
+    assert "50.0" not in fallback.summary
+    assert "score is unavailable" in fallback.environmental_impact_explanation.lower()
+    assert fallback.practical_recommendations[0] == "Recommended decision tier: Think Twice."
+
+
+def test_gemini_fallback_missing_recommendation(sample_analysis_data):
+    """Verify fallback handles missing recommendation tier without fabricating 'Think Twice'."""
+    adapter = GeminiAdapter(api_key="")
+    data = deepcopy(sample_analysis_data)
+    del data["impact_assessment"]["recommendation"]
+
+    fallback = adapter.generate_fallback(data, reason="Missing recommendation")
+
+    assert fallback.is_fallback is True
+    assert "no recommendation tier was produced" in fallback.summary.lower()
+    assert "Think Twice" not in fallback.summary
+    assert "68.5" in fallback.summary
+    assert "no recommendation tier was produced" in fallback.practical_recommendations[0].lower()
+
+
+def test_gemini_fallback_recommendation_none(sample_analysis_data):
+    """Verify fallback handles recommendation explicitly set to None."""
+    adapter = GeminiAdapter(api_key="")
+    data = deepcopy(sample_analysis_data)
+    data["impact_assessment"]["recommendation"] = None
+
+    fallback = adapter.generate_fallback(data, reason="None recommendation")
+
+    assert fallback.is_fallback is True
+    assert "no recommendation tier was produced" in fallback.summary.lower()
+    assert "Think Twice" not in fallback.summary
+    assert "68.5" in fallback.summary
+    assert "no recommendation tier was produced" in fallback.practical_recommendations[0].lower()
+
+
+def test_gemini_fallback_both_score_and_recommendation_missing(sample_analysis_data):
+    """Verify fallback handles both overall score and recommendation missing simultaneously."""
+    adapter = GeminiAdapter(api_key="")
+    data = deepcopy(sample_analysis_data)
+    data["impact_assessment"]["overall_impact_score"] = None
+    data["impact_assessment"]["recommendation"] = None
+
+    fallback = adapter.generate_fallback(data, reason="Both missing")
+
+    assert fallback.is_fallback is True
+    assert "score is unavailable" in fallback.summary.lower()
+    assert "no recommendation tier was produced" in fallback.summary.lower()
+    assert "50.0" not in fallback.summary
+    assert "Think Twice" not in fallback.summary
+    assert "score and recommendation tier are unavailable" in fallback.environmental_impact_explanation.lower()
+    assert "no recommendation tier was produced" in fallback.practical_recommendations[0].lower()
+
+
+def test_gemini_fallback_no_unsupported_second_hand_claim(sample_analysis_data):
+    """Verify recommendation tier 'Second-hand' does not make unsupported environmental claims."""
+    adapter = GeminiAdapter(api_key="")
+    data = deepcopy(sample_analysis_data)
+    data["impact_assessment"]["recommendation"] = "Second-hand"
+
+    fallback = adapter.generate_fallback(data, reason="Second-hand rec")
+
+    full_text = str(fallback.model_dump()).lower()
+    assert "significantly offsets" not in full_text
+    assert "virgin production impacts" not in full_text
+    assert any("may extend the useful life" in rec.lower() for rec in fallback.practical_recommendations)
+    assert any("reduce demand for new production" in rec.lower() for rec in fallback.practical_recommendations)
+
+
 def test_gemini_adapter_malformed_json_handling(sample_analysis_data):
     """Verify GeminiAdapter handles malformed non-JSON output gracefully."""
     adapter = GeminiAdapter(api_key="valid_looking_key")
