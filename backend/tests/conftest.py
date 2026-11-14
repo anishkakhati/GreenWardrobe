@@ -36,3 +36,19 @@ def valid_png_bytes() -> bytes:
 def corrupt_image_bytes() -> bytes:
     """Generate arbitrary invalid bytes simulating corrupt file."""
     return b"NOT_A_REAL_IMAGE_HEADER_DATA_123456"
+
+
+@pytest.fixture
+def make_image_bytes():
+    """Factory fixture to create in-memory image bytes of any format and size."""
+    def _create(fmt="JPEG", size=(100, 80), color="blue", mode="RGB", exif_orientation=None):
+        buf = io.BytesIO()
+        img = Image.new(mode, size, color=color)
+        save_kwargs = {"format": fmt}
+        if exif_orientation is not None:
+            exif = img.getexif()
+            exif[0x0112] = exif_orientation  # 0x0112 is EXIF Orientation tag
+            save_kwargs["exif"] = exif
+        img.save(buf, **save_kwargs)
+        return buf.getvalue()
+    return _create
