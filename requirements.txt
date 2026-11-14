@@ -1,0 +1,8 @@
+
+easyocr>=1.7.1
+opencv-python-headless>=4.8
+pandas>=2.0
+numpy>=1.24
+matplotlib>=3.7
+jiwer>=3.0
+Pillow>=10.0
