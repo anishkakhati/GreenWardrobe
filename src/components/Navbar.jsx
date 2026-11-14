@@ -2,14 +2,11 @@
 // Navigation header for GreenWardrobe with logo, navigation links, and API mode toggle
 
 import React, { useState } from "react";
-import { Leaf, Menu, X, Activity, Server, Sparkles } from "lucide-react";
+import { Leaf, Menu, X, Activity } from "lucide-react";
 
 export default function Navbar({
   activeTab,
   setActiveTab,
-  useDemoMode,
-  setUseDemoMode,
-  backendConnected
 }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -90,30 +87,6 @@ export default function Navbar({
             </button>
           </nav>
 
-          {/* REST API Mode Switcher (Great for Teacher Evaluation) */}
-          <div className="hidden sm:flex items-center gap-3">
-            <button
-              onClick={() => setUseDemoMode(!useDemoMode)}
-              title="Click to toggle between Demo Mode and Live REST API mode"
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                useDemoMode
-                  ? "bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100"
-                  : "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100"
-              }`}
-            >
-              {useDemoMode ? (
-                <>
-                  <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Demo Mode (Sample Data)</span>
-                </>
-              ) : (
-                <>
-                  <Server className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Live API Mode ({backendConnected ? "Connected" : "Offline"})</span>
-                </>
-              )}
-            </button>
-          </div>
 
           {/* Mobile Menu Button (Hamburger) */}
           <div className="flex md:hidden items-center gap-2">
@@ -165,16 +138,6 @@ export default function Navbar({
             Fabric Guide
           </button>
 
-          {/* Mode Switcher in Mobile */}
-          <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
-            <span className="text-xs text-gray-500">Operation Mode:</span>
-            <button
-              onClick={() => setUseDemoMode(!useDemoMode)}
-              className="text-xs px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 border"
-            >
-              {useDemoMode ? "⚡ Demo Mode" : "🌐 Live API Mode"}
-            </button>
-          </div>
         </div>
       )}
     </header>

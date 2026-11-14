@@ -26,7 +26,7 @@ import Footer from "./components/Footer.jsx";
 import { analyzeClothingImage, checkBackendHealth } from "./services/api.js";
 
 // Icons for status messages
-import { Sparkles, Server, CheckCircle2, History } from "lucide-react";
+import { History } from "lucide-react";
 
 export default function App() {
   // --------------------------------------------------------------------------
@@ -47,9 +47,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false); // Loading indicator
   const [apiError, setApiError] = useState(""); // Error message string
 
-  // 4. REST API & Demo Mode state
-  // Default to true (Demo Mode) so the app works reliably during evaluation without backend
-  const [useDemoMode, setUseDemoMode] = useState(true);
+  // Backend connectivity is informational; analysis always uses the live API.
   const [backendConnected, setBackendConnected] = useState(false);
 
   // 5. Analysis History (stores past scans during this session)
@@ -58,22 +56,19 @@ export default function App() {
   // --------------------------------------------------------------------------
   // LIFECYCLE HOOK (useEffect)
   // --------------------------------------------------------------------------
-  // On component mount, check if a local backend server is running on http://localhost:5000
+  // On component mount, check whether the configured backend is reachable.
   useEffect(() => {
     async function verifyBackend() {
       const isAlive = await checkBackendHealth();
       setBackendConnected(isAlive);
       if (isAlive) {
-        console.log("[System] Live REST backend detected at localhost:5000!");
-      } else {
-        console.log("[System] Backend not detected. Defaulting to Demo Mode for college evaluation.");
       }
     }
     verifyBackend();
   }, []);
 
   // --------------------------------------------------------------------------
-  // HANDLERS: Image selection, removal, and sample presets
+  // HANDLERS: Image selection and removal
   // --------------------------------------------------------------------------
 
   // Called when user selects or drops a valid image file
@@ -99,27 +94,6 @@ export default function App() {
     setApiError("");
   };
 
-  // Called when user clicks a one-click sample preset from the UI
-  const handleSelectSamplePreset = (presetGarment) => {
-    if (imagePreviewUrl && imagePreviewUrl.startsWith("blob:")) {
-      URL.revokeObjectURL(imagePreviewUrl);
-    }
-    // Mark as preset object (Issue 3 Fix)
-    setSelectedImage({
-      name: `${presetGarment.name.toLowerCase().replace(/\s+/g, "-")}.jpg`,
-      size: 420 * 1024,
-      type: "image/jpeg",
-      isPreset: true,
-    });
-    setImagePreviewUrl(presetGarment.imageUrl);
-    setAnalysisResult({
-      ...presetGarment,
-      isDemoData: true,
-      dataSourceLabel: "Illustrative Sample Preset",
-    });
-    setApiError("");
-  };
-
   // Called when user takes a photo with the live camera modal
   const handlePhotoCaptured = (capturedFile, previewUrl) => {
     if (imagePreviewUrl && imagePreviewUrl.startsWith("blob:") && imagePreviewUrl !== previewUrl) {
@@ -132,20 +106,11 @@ export default function App() {
   };
 
   // --------------------------------------------------------------------------
-  // HANDLER: Run Analysis via REST API or Demo Mode
+  // HANDLER: Run analysis through the live backend
   // --------------------------------------------------------------------------
   const handleTriggerAnalysis = async () => {
     if (!selectedImage && !imagePreviewUrl) {
       setApiError("Please select or capture a clothing image first.");
-      return;
-    }
-
-    // Safety guard (Issue 3 Fix): Prevent sample preset mock objects from being sent to live backend
-    const isRealFile = typeof File !== "undefined" && (selectedImage instanceof File || selectedImage instanceof Blob);
-    if (!useDemoMode && !isRealFile) {
-      setApiError(
-        "Sample presets contain demonstration data. To test the Live REST API, please upload an image file or take a photo with your device camera."
-      );
       return;
     }
 
@@ -154,21 +119,9 @@ export default function App() {
 
     try {
       // Call our API service function (demonstrating Fetch API POST request)
-      const response = await analyzeClothingImage(selectedImage, useDemoMode);
-
-      if (response && response.success) {
-        setAnalysisResult(response.data);
-
-        // Add to recent history list (keep latest 4)
-        setHistoryList((prev) => [response.data, ...prev.slice(0, 3)]);
-
-        // If backend was unreachable and automatically used fallback, notify user
-        if (response.source === "fallback-demo") {
-          console.info("Using simulated data as backend was unreachable.");
-        }
-      } else {
-        throw new Error(response?.error || "Analysis failed. Please try again.");
-      }
+      const result = await analyzeClothingImage(selectedImage);
+      setAnalysisResult(result);
+      setHistoryList((prev) => [result, ...prev.slice(0, 3)]);
     } catch (err) {
       console.error("Analysis execution error:", err);
       setApiError(err.message || "An unexpected error occurred during analysis.");
@@ -193,8 +146,6 @@ export default function App() {
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        useDemoMode={useDemoMode}
-        setUseDemoMode={setUseDemoMode}
         backendConnected={backendConnected}
       />
 
@@ -257,19 +208,9 @@ export default function App() {
 
               {/* Status Pill Badge */}
               <div className="flex items-center gap-2">
-                {useDemoMode ? (
-                  <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold shadow-xs">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Demo Mode (Academic Simulation)</span>
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold shadow-xs">
-                    <Server className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>
-                      Live API: {backendConnected ? "Connected" : "Offline (Fallback Enabled)"}
-                    </span>
-                  </span>
-                )}
+                <span className={`px-3.5 py-1.5 rounded-full text-xs font-semibold ${backendConnected ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
+                  Backend: {backendConnected ? "Connected" : "Unavailable"}
+                </span>
               </div>
             </div>
 
@@ -292,7 +233,6 @@ export default function App() {
               imagePreviewUrl={imagePreviewUrl}
               onImageSelected={handleImageSelected}
               onImageRemoved={handleImageRemoved}
-              onSelectSamplePreset={handleSelectSamplePreset}
               onTriggerAnalysis={handleTriggerAnalysis}
               onOpenLiveCamera={() => setIsCameraOpen(true)}
               isLoading={isLoading}
@@ -303,38 +243,6 @@ export default function App() {
             {analysisResult && (
               <div className="space-y-8 animate-in fade-in duration-300">
                 
-                {/* Visual Separator Banner: Clearly distinguish Demo vs Live Backend (Issue 4 Fix) */}
-                {analysisResult.isDemoData ? (
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span className="font-bold uppercase tracking-wider text-amber-900">
-                        ⚡ Demo Mode: Simulated Sample Analysis
-                      </span>
-                      <span className="hidden md:inline text-amber-800">
-                        — Educational Life Cycle Assessment (LCA) estimates for presentation testing (not live server data).
-                      </span>
-                    </div>
-                    <span className="self-start sm:self-auto px-2 py-0.5 rounded bg-amber-200 text-amber-900 font-bold text-[10px] shrink-0 border border-amber-300">
-                      {analysisResult.dataSourceLabel || "Sample Simulation"}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span className="font-bold uppercase tracking-wider text-emerald-900">
-                        🌐 Live Backend Analysis Received
-                      </span>
-                      <span className="hidden md:inline text-emerald-800">
-                        — Verified data returned from backend REST API endpoint (/api/analyze-clothing).
-                      </span>
-                    </div>
-                    <span className="self-start sm:self-auto px-2 py-0.5 rounded bg-emerald-200 text-emerald-900 font-bold text-[10px] shrink-0 border border-emerald-300">
-                      Live Server Data
-                    </span>
-                  </div>
-                )}
 
                 {/* Clothing Label Preview (Garment Info + Fabric Composition) */}
                 <ClothingLabelPreview
@@ -345,8 +253,8 @@ export default function App() {
                 {/* Environmental Impact Dashboard (Score, Water, Carbon, Energy) */}
                 <EnvironmentalImpact
                   impactData={analysisResult.environmentalImpact}
-                  isDemoData={analysisResult.isDemoData}
-                  dataSourceLabel={analysisResult.dataSourceLabel}
+                  environmentalProfiles={analysisResult.environmentalProfiles}
+                  aiExplanation={analysisResult.aiExplanation}
                 />
 
                 {/* 5 Circular Recommendations Interface */}
@@ -381,8 +289,8 @@ export default function App() {
                     >
                       <p className="font-bold text-gray-800 truncate">{item.name}</p>
                       <div className="flex items-center justify-between text-[11px] text-gray-500">
-                        <span>Score: {item.environmentalImpact?.score}/100</span>
-                        <span className="font-semibold text-emerald-700">{item.recommendation}</span>
+                        <span>Score: {item.environmentalImpact?.score ?? "Unavailable"}</span>
+                        <span className="font-semibold text-emerald-700">{item.recommendation || "Unavailable"}</span>
                       </div>
                     </div>
                   ))}

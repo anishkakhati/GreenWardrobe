@@ -24,7 +24,7 @@ function getRecommendationIcon(id) {
 }
 
 export default function Recommendations({
-  recommendedAction = "BUY",
+  recommendedAction = null,
   recommendationReason = ""
 }) {
   // Allow user to click other cards to explore all 5 recommendations
@@ -33,9 +33,7 @@ export default function Recommendations({
 
   const selectedActionId = userSelectedAction || recommendedAction;
 
-  const activeRec =
-    RECOMMENDATIONS.find((r) => r.id === selectedActionId) ||
-    RECOMMENDATIONS[0];
+  const activeRec = RECOMMENDATIONS.find((r) => r.id === selectedActionId);
 
   const isRecommended = selectedActionId === recommendedAction;
 
@@ -54,7 +52,7 @@ export default function Recommendations({
         </div>
 
         <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-3 py-1 rounded-full">
-          Suggested Action: {recommendedAction}
+          Suggested Action: {recommendedAction || "Recommendation unavailable"}
         </span>
       </div>
 
@@ -103,25 +101,25 @@ export default function Recommendations({
         
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-gray-200/60">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white border border-gray-200 flex items-center justify-center shadow-xs">
+          {activeRec ? <div className="w-10 h-10 rounded-xl bg-white border border-gray-200 flex items-center justify-center shadow-xs">
               {getRecommendationIcon(activeRec.id)}
-            </div>
+            </div> : null}
             <div>
               <h4 className="text-base sm:text-lg font-bold text-gray-900 flex items-center gap-2">
-                <span>Action: {activeRec.title}</span>
+                <span>{activeRec ? `Action: ${activeRec.title}` : "Recommendation unavailable"}</span>
                 {isRecommended && (
                   <span className="text-xs bg-emerald-600 text-white px-2 py-0.5 rounded-md font-semibold">
                     Optimal for this Garment
                   </span>
                 )}
               </h4>
-              <p className="text-xs text-gray-500">{activeRec.tagline}</p>
+              {activeRec && <p className="text-xs text-gray-500">{activeRec.tagline}</p>}
             </div>
           </div>
 
-          <span className={`text-xs px-2.5 py-1 rounded-md font-bold self-start sm:self-auto border ${activeRec.badgeColor}`}>
+          {activeRec && <span className={`text-xs px-2.5 py-1 rounded-md font-bold self-start sm:self-auto border ${activeRec.badgeColor}`}>
             {activeRec.id}
-          </span>
+          </span>}
         </div>
 
         {/* AI Specific Reason (if this is the recommended action) */}
@@ -135,12 +133,12 @@ export default function Recommendations({
         )}
 
         {/* General Strategy Description */}
-        <p className="text-sm text-gray-700 leading-relaxed">
+        {activeRec && <p className="text-sm text-gray-700 leading-relaxed">
           {activeRec.description}
-        </p>
+        </p>}
 
         {/* Practical Action Tips */}
-        <div className="space-y-2 pt-2">
+        {activeRec && <div className="space-y-2 pt-2">
           <h5 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
             Consumer Action Checklist:
           </h5>
@@ -155,7 +153,7 @@ export default function Recommendations({
               </div>
             ))}
           </div>
-        </div>
+        </div>}
 
       </div>
 

@@ -3,10 +3,9 @@
 
 import React, { useState, useRef } from "react";
 import { UploadCloud, Camera, Trash2, AlertCircle, FileCheck, Loader2, Sparkles } from "lucide-react";
-import { SAMPLE_GARMENTS } from "../data/sampleData.js";
 
-// Max file size: 5 MB
-const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+// Backend maximum file size: 10 MB
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/jpg"];
 
 export default function ImageUpload({
@@ -14,7 +13,6 @@ export default function ImageUpload({
   imagePreviewUrl,
   onImageSelected,
   onImageRemoved,
-  onSelectSamplePreset,
   onTriggerAnalysis,
   onOpenLiveCamera,
   isLoading,
@@ -38,7 +36,7 @@ export default function ImageUpload({
 
     // Check File size (max 5MB)
     if (file.size > MAX_FILE_SIZE_BYTES) {
-      setValidationError("File is too large. Maximum allowed image size is 5 MB.");
+      setValidationError("File is too large. Maximum allowed image size is 10 MB.");
       return;
     }
 
@@ -86,7 +84,7 @@ export default function ImageUpload({
           <span>Upload or Capture Clothing Image</span>
         </h2>
         <p className="text-sm text-gray-500 mt-1">
-          Upload a clear photo of your garment or its inner care label tag.
+          Upload one clear photo showing the complete garment or a readable care label. The backend identifies the image type automatically.
         </p>
       </div>
 
@@ -135,7 +133,7 @@ export default function ImageUpload({
               <span className="text-emerald-600 underline">browse files</span>
             </p>
             <p className="text-xs text-gray-500 mt-1">
-              Supports JPEG, PNG, WEBP (Maximum size: 5 MB)
+              Supports JPEG, PNG, WEBP (Maximum size: 10 MB)
             </p>
           </div>
 
@@ -151,34 +149,10 @@ export default function ImageUpload({
             </button>
           </div>
 
-          {/* Quick Presets (Great for viva evaluation & instant testing) */}
-          <div className="pt-4 border-t border-gray-100">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 mb-2.5">
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>Or click a quick sample preset for instant testing:</span>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {SAMPLE_GARMENTS.map((garment) => (
-                <button
-                  key={garment.id}
-                  type="button"
-                  onClick={() => onSelectSamplePreset(garment)}
-                  className="p-2.5 rounded-xl border border-gray-200 hover:border-emerald-500 hover:bg-emerald-50/50 text-left transition-all text-xs group cursor-pointer"
-                >
-                  <p className="font-semibold text-gray-800 truncate group-hover:text-emerald-800">
-                    {garment.name}
-                  </p>
-                  <p className="text-[10px] text-gray-500 mt-0.5 truncate">
-                    {garment.category}
-                  </p>
-                </button>
-              ))}
-            </div>
-          </div>
 
         </div>
       ) : (
-        /* Image Preview Area (When an image or preset has been selected) */
+        /* Image preview area */
         <div className="space-y-4">
           <div className="relative rounded-2xl overflow-hidden border border-emerald-100 bg-gray-900/5 max-h-96 flex items-center justify-center group">
             <img
@@ -208,7 +182,7 @@ export default function ImageUpload({
           {/* File Meta Information */}
           <div className="flex flex-wrap items-center justify-between text-xs text-gray-500 px-1">
             <span>
-              <strong>File:</strong> {selectedImage?.name || "Selected Preset Garment"}
+              <strong>File:</strong> {selectedImage?.name || "Captured image"}
             </span>
             {selectedImage?.size && (
               <span>
