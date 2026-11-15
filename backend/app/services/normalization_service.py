@@ -11,6 +11,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.core.composition import (
+    COMPOSITION_TOTAL_TOLERANCE_PERCENT,
+    composition_total_is_valid,
+)
 from app.core.logging import logger
 from app.schemas.common import AnalysisSource
 from app.schemas.response import (
@@ -151,10 +155,12 @@ class NormalizationService:
         )
 
         total_pct = comp.total_percentage
-        # Tolerance around 100% (98% to 102%)
-        if not (98.0 <= total_pct <= 102.0):
+        # Composition and scorer share an absolute ±0.01 percentage-point tolerance.
+        if not composition_total_is_valid(m.percentage for m in comp.materials):
             warnings.append(
-                f"Label composition is partial or incomplete: percentages sum to {total_pct:.1f}% (expected ~100%)."
+                "Label composition is partial or incomplete: percentages sum to "
+                f"{total_pct:.2f}% (scoring requires 100% within ±"
+                f"{COMPOSITION_TOTAL_TOLERANCE_PERCENT}%)."
             )
 
         return comp, warnings
@@ -375,21 +381,54 @@ class NormalizationService:
                     second_hand_available=second_hand_available,
                 )
             except ScoringError as e:
-                logger.warning("Scoring calculation error in pipeline: %s", str(e))
-                warnings.append(f"Scoring calculation warning: {str(e)}")
+                if e.status_code >= 500:
+                    logger.error(
+                        "Scoring engine failed (status_code=%s).", e.status_code
+                    )
+                    status = "ENGINE_ERROR"
+                    reason = "The scoring service is unavailable or failed."
+                    calculation_basis = "unscored_due_to_engine_error"
+                    warning = (
+                        "The scoring service is unavailable or failed. "
+                        "Composition and material reference information are retained, "
+                        "but no score or recommendation was produced."
+                    )
+                else:
+                    logger.info(
+                        "Scoring could not use the supplied composition (status_code=%s).",
+                        e.status_code,
+                    )
+                    status = "INSUFFICIENT_DATA"
+                    reason = (
+                        "Composition data are incomplete, invalid, or unsupported "
+                        "by the available scoring data."
+                    )
+                    calculation_basis = "unscored_due_to_insufficient_data"
+                    warning = (
+                        "Composition data are incomplete, invalid, or unsupported "
+                        "by the scoring data. No score or recommendation was produced."
+                    )
+                warnings.append(warning)
                 impact_assessment = ScoringResult(
                     overall_impact_score=None,
                     recommendation=None,
-                    key_indicators={"status": "INSUFFICIENT_DATA", "reason": str(e)},
-                    calculation_basis="unscored_due_to_unmapped_materials",
+                    key_indicators={"status": status, "reason": reason},
+                    calculation_basis=calculation_basis,
                 )
             except Exception as e:
-                logger.warning("Scoring failure in pipeline: %s", str(e))
-                warnings.append(f"Scoring engine failure: {str(e)}")
+                logger.exception("Unexpected scoring engine failure.")
+                warnings.append(
+                    "The scoring service is unavailable or failed. Composition and "
+                    "material reference information are retained, but no score or "
+                    "recommendation was produced."
+                )
                 impact_assessment = ScoringResult(
                     overall_impact_score=None,
                     recommendation=None,
-                    key_indicators={"status": "ENGINE_ERROR", "reason": str(e)},
+                    key_indicators={
+                        "status": "ENGINE_ERROR",
+                        "reason": "The scoring service is unavailable or failed.",
+                    },
                     calculation_basis="unscored_due_to_engine_error",
                 )
         else:

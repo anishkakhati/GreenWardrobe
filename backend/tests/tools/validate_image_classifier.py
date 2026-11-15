@@ -103,10 +103,29 @@ def _image_bytes(filename: str, manifest_dir: Path) -> tuple[bytes, str, str]:
 def _load_manifest(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8") as source:
         reader = csv.DictReader(source)
-        missing = REQUIRED_COLUMNS.difference(reader.fieldnames or [])
-        if missing:
-            raise ValueError(f"Manifest is missing required columns: {', '.join(sorted(missing))}")
-        rows = list(reader)
+        fieldnames = set(reader.fieldnames or [])
+        combined_schema = {"relative_path", "task", "ground_truth_class", "split", "source"}.issubset(fieldnames)
+        if not combined_schema:
+            missing = REQUIRED_COLUMNS.difference(fieldnames)
+            if missing:
+                raise ValueError(f"Manifest is missing required columns: {', '.join(sorted(missing))}")
+        source_rows = list(reader)
+
+    if combined_schema:
+        rows = [
+            {
+                **row,
+                "filename": row["relative_path"],
+                "ground_truth_category": row["ground_truth_class"],
+                "image_source": row["source"],
+                "notes": row.get("annotation_notes", ""),
+            }
+            for row in source_rows
+            if row.get("task", "").strip().lower() == "image_type"
+            and row.get("split", "").strip().lower() == "test"
+        ]
+    else:
+        rows = source_rows
 
     for line_number, row in enumerate(rows, start=2):
         category = row["ground_truth_category"].strip().upper()
@@ -218,6 +237,44 @@ def validate(manifest_path: Path) -> dict[str, Any]:
     confusion, per_class, errors = _metrics(records)
     manifest_counts = Counter(row["ground_truth_category"] for row in rows)
     evaluated_counts = Counter(record["ground_truth_category"] for record in records)
+    supported_f1 = {
+        category: metrics["f1"]
+        for category, metrics in per_class.items()
+        if metrics["support"] > 0 and metrics["f1"] is not None
+    }
+    total_supported = sum(per_class[category]["support"] for category in supported_f1)
+    unknown_support = evaluated_counts[IMAGE_TYPE_UNKNOWN]
+    garment_support = evaluated_counts[IMAGE_TYPE_GARMENT]
+    unknown_as_garment = sum(
+        record["ground_truth_category"] == IMAGE_TYPE_UNKNOWN
+        and record["predicted_class"] == IMAGE_TYPE_GARMENT
+        for record in records
+    )
+    garment_as_unknown = sum(
+        record["ground_truth_category"] == IMAGE_TYPE_GARMENT
+        and record["predicted_class"] == IMAGE_TYPE_UNKNOWN
+        for record in records
+    )
+
+    confidence_distributions: dict[str, Any] = {}
+    for category in CLASSES:
+        class_records = [r for r in records if r["ground_truth_category"] == category]
+        values = np.asarray([r["confidence"] for r in class_records], dtype=np.float64)
+        confidence_distributions[category] = (
+            {
+                "status": "MEASURED",
+                "count": int(values.size),
+                "min": float(values.min()),
+                "median": float(np.median(values)),
+                "mean": float(values.mean()),
+                "max": float(values.max()),
+                "correct_mean": float(np.mean([r["confidence"] for r in class_records if r["correct"]])) if any(r["correct"] for r in class_records) else None,
+                "incorrect_mean": float(np.mean([r["confidence"] for r in class_records if not r["correct"]])) if any(not r["correct"] for r in class_records) else None,
+            }
+            if values.size
+            else {"status": "INSUFFICIENT_DATA", "count": 0}
+        )
+
     return {
         "manifest": str(manifest_path),
         "classifier": classifier.classifier_name,
@@ -227,6 +284,21 @@ def validate(manifest_path: Path) -> dict[str, Any]:
         "ground_truth_counts_in_manifest": {category: manifest_counts[category] for category in CLASSES},
         "ground_truth_counts_evaluated": {category: evaluated_counts[category] for category in CLASSES},
         "category_metrics": per_class,
+        "aggregate_metrics": {
+            "macro_f1_over_supported_classes": float(np.mean(list(supported_f1.values()))) if supported_f1 else None,
+            "weighted_f1_over_supported_classes": (
+                float(sum(per_class[k]["f1"] * per_class[k]["support"] for k in supported_f1) / total_supported)
+                if total_supported else None
+            ),
+            "f1_supported_classes": sorted(supported_f1),
+            "f1_unsupported_classes": [category for category in CLASSES if per_class[category]["support"] == 0],
+            "unknown_false_garment_acceptance_rate": unknown_as_garment / unknown_support if unknown_support else None,
+            "unknown_false_garment_acceptance_support": unknown_support,
+            "garment_false_unknown_rejection_rate": garment_as_unknown / garment_support if garment_support else None,
+            "garment_false_unknown_rejection_support": garment_support,
+            "interpretation": "Metrics describe this manifest only. Class metrics with zero ground-truth support are insufficient; aggregate F1 excludes unsupported classes.",
+        },
+        "confidence_distributions_by_ground_truth": confidence_distributions,
         "confusion_matrix_rows_truth_columns_prediction": confusion,
         "classification_errors": errors,
         "unavailable_examples": unavailable,

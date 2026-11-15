@@ -119,16 +119,23 @@ class VisionAdapter(BaseVisionAdapter):
         return self._model is not None or self._custom_predictor is not None
 
     def status_info(self) -> Dict[str, Any]:
-        self._ensure_model()
-        if self.is_available:
+        """Report asset and in-memory state without initializing the model."""
+        checkpoint_exists = self._checkpoint_path.is_file()
+        model_loaded = self._model is not None
+        custom_predictor = self._custom_predictor is not None
+
+        if custom_predictor or model_loaded:
             status_label = "REAL INTEGRATION VERIFIED"
             status_code = "OPERATIONAL"
-        elif not self._checkpoint_path.exists():
+        elif not checkpoint_exists:
             status_label = "BLOCKED — DEPENDENCY OR ASSET MISSING (WEIGHTS: res18_ckpt.pth)"
             status_code = "MODEL_CHECKPOINT_MISSING"
+        elif self._initialized:
+            status_label = "CHECKPOINT AVAILABLE BUT MODEL INITIALIZATION FAILED"
+            status_code = "CHECKPOINT_UNAVAILABLE"
         else:
-            status_label = "CODE CONNECTED BUT NOT INFERENCE VERIFIED"
-            status_code = "CHECKPOINT_UNVERIFIED"
+            status_label = "CHECKPOINT AVAILABLE — MODEL NOT LOADED"
+            status_code = "ASSET_AVAILABLE_NOT_LOADED"
 
         return {
             "adapter": self.adapter_name,
@@ -137,7 +144,12 @@ class VisionAdapter(BaseVisionAdapter):
             "architecture": "ResNet-18 (TextileNet)",
             "classes_count": len(self._class_names),
             "checkpoint_configured": str(self._checkpoint_path),
-            "checkpoint_exists": self._checkpoint_path.exists(),
+            "checkpoint_exists": checkpoint_exists,
+            "asset_available": checkpoint_exists,
+            "initialization_attempted": self._initialized,
+            "model_loaded": model_loaded,
+            "inference_ready": model_loaded or custom_predictor,
+            "custom_predictor": custom_predictor,
             "upstream_repository": "https://github.com/hahashu/TextileNet",
             "required_asset": "res18_ckpt.pth",
         }

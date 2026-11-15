@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 
 from app.core.config import settings
 from app.core.exceptions import ImageClassificationError, ImageValidationError
-from app.schemas.response import AnalysisResponse
+from app.schemas.response import AnalysisResponse, APIErrorResponse
 from app.services.analysis_service import analysis_service
 from app.services.image_service import image_service
 
@@ -69,6 +69,13 @@ async def upload_garment(
 @router.post(
     "/analyze",
     response_model=AnalysisResponse,
+    responses={
+        400: {"model": APIErrorResponse, "description": "Empty upload or malformed/corrupt image."},
+        413: {"model": APIErrorResponse, "description": "Uploaded image exceeds the configured size limit."},
+        415: {"model": APIErrorResponse, "description": "Unsupported image format or media type."},
+        422: {"model": APIErrorResponse, "description": "Missing/invalid request fields, invalid image, or image classified as UNKNOWN."},
+        500: {"model": APIErrorResponse, "description": "Unexpected internal server error; response does not expose a traceback."},
+    },
     summary="Analyse garment environmental impact from a single image",
     description=(
         "Accepts ONE image (JPEG, PNG, or WEBP) via multipart/form-data. "

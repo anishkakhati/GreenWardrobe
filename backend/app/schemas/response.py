@@ -394,6 +394,24 @@ class AnalysisMetadata(BaseModel):
     )
 
 
+class APIErrorDetail(BaseModel):
+    """Error object returned by the application's centralized exception handlers."""
+
+    type: str = Field(description="Stable error category name")
+    message: str = Field(description="Human-readable explanation of the request failure")
+    details: Any = Field(
+        default_factory=dict,
+        description="Additional validation or domain details; may be an object, list, or empty object",
+    )
+
+
+class APIErrorResponse(BaseModel):
+    """Error envelope returned for HTTP failures."""
+
+    success: bool = Field(default=False, description="Always false for an error response")
+    error: APIErrorDetail
+
+
 class AnalysisResponse(BaseModel):
     """Production response contract returned by POST /api/v1/analyze."""
 

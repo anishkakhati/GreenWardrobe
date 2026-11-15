@@ -35,12 +35,38 @@ def parse_composition(text: str) -> Dict[str, List[float]]:
     normalized = normalize_text(text)
     composition: Dict[str, List[float]] = {}
 
+    # Determine the label's local ordering from its first recognized fibre.
+    # Without this, a forward-only regex such as `FIBRE 84%` can steal the
+    # following fibre's percentage when OCR drops the preceding '%' glyph.
+    fibre_token = re.compile(
+        r"\b(?:" + "|".join(re.escape(name) for name in sorted(SUPPORTED_FIBRES, key=len, reverse=True)) + r")\b"
+    )
+    first_fibre = fibre_token.search(normalized)
+    percentage_first = True
+    if first_fibre:
+        before = normalized[:first_fibre.start()]
+        after = normalized[first_fibre.end():]
+        preceding_value = re.search(r"(\d+(?:\.\d+)?)\s*%?\s*(?:OF\s+)?$", before)
+        following_value = re.match(r"\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*%", after)
+        parenthetical_value = re.match(r"\s*\(\s*\d+(?:\.\d+)?\s*%\s*\)", after)
+        if following_value or parenthetical_value:
+            percentage_first = bool(preceding_value)
+
     for fibre in SUPPORTED_FIBRES:
-        patterns = [
-            rf"(\d+(?:\.\d+)?)\s*%\s*(?:OF\s+)?{fibre}\b",
-            rf"\b{fibre}\s*[:\-\s]?\s*(\d+(?:\.\d+)?)\s*%",
-            rf"\b{fibre}\s*\(\s*(\d+(?:\.\d+)?)\s*%\s*\)",
-        ]
+        preceding_pattern = (
+            # OCR often drops the percent glyph while retaining a number that
+            # is immediately before its material (e.g. "16 ACRYLIC"). Prefer
+            # this preceding-number form so it cannot consume the next fibre's
+            # percentage through the reversed syntax below.
+            rf"(\d+(?:\.\d+)?)\s*%?\s*(?:OF\s+)?{fibre}\b"
+        )
+        following_pattern = rf"\b{fibre}\s*[:\-\s]?\s*(\d+(?:\.\d+)?)\s*%"
+        parenthetical_pattern = rf"\b{fibre}\s*\(\s*(\d+(?:\.\d+)?)\s*%\s*\)"
+        patterns = (
+            [preceding_pattern, following_pattern, parenthetical_pattern]
+            if percentage_first
+            else [following_pattern, preceding_pattern, parenthetical_pattern]
+        )
 
         for pattern in patterns:
             matches = re.findall(pattern, normalized)

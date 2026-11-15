@@ -8,6 +8,10 @@ and generates explainable decision recommendations.
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from app.core.composition import (
+    COMPOSITION_TOTAL_TOLERANCE_PERCENT,
+    composition_total_is_valid,
+)
 from app.core.exceptions import ScoringError
 from app.core.logging import logger
 from app.integrations.base import BaseScoringAdapter
@@ -83,28 +87,60 @@ class ScoringAdapter(BaseScoringAdapter):
                 status_code=400,
             )
 
+        if not composition_total_is_valid(composition.values()):
+            try:
+                total_pct = sum(float(value) for value in composition.values())
+            except (TypeError, ValueError):
+                total_pct = float("nan")
+            raise ScoringError(
+                message=(
+                    "Composition percentages must total 100% within an absolute "
+                    f"tolerance of {COMPOSITION_TOTAL_TOLERANCE_PERCENT} percentage points; "
+                    f"received {total_pct:.2f}%."
+                ),
+                status_code=422,
+                details={"composition": composition},
+            )
+
+        # Pass through the extracted proportions unchanged; the scorer
+        # validates the same strict total and never repairs the blend.
         try:
-            # Re-normalize slight floating point rounding discrepancies (e.g., 99.9% or 100.1%)
-            total_pct = sum(float(v) for v in composition.values() if v is not None)
-            clean_comp = dict(composition)
-            if 98.0 <= total_pct <= 102.0 and not (99.99 <= total_pct <= 100.01):
-                clean_comp = {
-                    k: round((float(v) / total_pct) * 100.0, 4)
-                    for k, v in composition.items()
-                }
+            score_data = self._scorer.score(dict(composition))
+        except ValueError as e:
+            # EnvironmentalScorer uses ValueError for expected input/data
+            # validation failures such as an unknown material or low coverage.
+            logger.info("Scoring input/data validation rejected: %s", str(e))
+            raise ScoringError(
+                message=str(e),
+                status_code=422,
+                details={"composition": composition},
+            )
+        except Exception as e:
+            logger.exception("Unexpected error in environmental scoring engine.")
+            raise ScoringError(
+                message=f"Scoring engine failure: {str(e)}",
+                status_code=500,
+            )
 
-            # 1. Execute actual environmental scoring
-            score_data = self._scorer.score(clean_comp)
-
-            # 2. Execute actual recommendation rules
+        # Recommendation errors are engine failures even if the implementation
+        # happens to raise ValueError; the composition has already passed input
+        # validation and the scorer has already returned a result.
+        try:
             rec_data = self._recommendation_engine.recommend(
                 score_data["overall_score"],
                 garment_condition=garment_condition,
                 shopping=shopping,
                 second_hand_available=second_hand_available,
             )
+        except Exception as e:
+            logger.exception("Unexpected error in recommendation engine.")
+            raise ScoringError(
+                message=f"Recommendation engine failure: {str(e)}",
+                status_code=500,
+            )
 
-            # 3. Map category scores into structured Pydantic breakdown
+        try:
+            # Map category scores into structured Pydantic breakdown.
             category_scores = score_data.get("category_scores", {})
             breakdown = ImpactScoreBreakdown(
                 water=IndicatorScore(
@@ -148,17 +184,10 @@ class ScoringAdapter(BaseScoringAdapter):
                 calculation_basis="rule_based_lca_weighted_average",
             )
 
-        except ValueError as e:
-            logger.warning("Scoring validation error: %s", str(e))
-            raise ScoringError(
-                message=str(e),
-                status_code=422,
-                details={"composition": composition},
-            )
         except Exception as e:
-            logger.exception("Unexpected error in scoring engine calculation: %s", str(e))
+            logger.exception("Could not convert scoring-engine output to response.")
             raise ScoringError(
-                message=f"Scoring engine failure: {str(e)}",
+                message=f"Scoring engine response failure: {str(e)}",
                 status_code=500,
             )
 

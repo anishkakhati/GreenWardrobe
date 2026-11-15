@@ -199,6 +199,60 @@ def test_ocr_live_inference_multi_fiber_blend():
     assert materials_found["wool"] == 32.0
 
 
+def test_ocr_live_inference_label_0001_preserves_each_adjacent_percentage():
+    """Regression: EasyOCR omits acrylic's percent sign but reads its value."""
+    fixture_path = Path(__file__).resolve().parent.parent / "fixtures" / "labels" / "label_0001.jpg"
+    proc = ImageService.process_image(fixture_path.read_bytes(), fixture_path.name, "image/jpeg")
+
+    import asyncio
+    result = asyncio.run(ocr_adapter.extract_composition(proc))
+
+    materials = {item.material.lower(): item.percentage for item in result.composition}
+    assert materials == {"acrylic": 16.0, "wool": 84.0}
+    assert sum(materials.values()) == 100.0
+    assert "16 ACRYLIC" in result.raw_text.upper()
+    assert "84% WOOL" in result.raw_text.upper()
+
+
+def test_ocr_parser_does_not_assign_next_fiber_percentage_to_previous_fiber():
+    from app.integrations.teammate_modules.ocr.text_parser import parse_composition
+
+    assert parse_composition("16 ACRYLIC 84% WOOL") == {
+        "ACRYLIC": [16.0],
+        "WOOL": [84.0],
+    }
+
+
+def test_ocr_parser_preserves_repeated_text_block_observations():
+    from app.integrations.teammate_modules.ocr.text_parser import parse_composition
+
+    assert parse_composition("16 ACRYLIC 84% WOOL 16 ACRYLIC 84% WOOL") == {
+        "ACRYLIC": [16.0, 16.0],
+        "WOOL": [84.0, 84.0],
+    }
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("80% COTTON 20% POLYESTER", {"COTTON": [80.0], "POLYESTER": [20.0]}),
+        ("COTTON 80% POLYESTER 20%", {"COTTON": [80.0], "POLYESTER": [20.0]}),
+        ("COTTON: 70%, POLYESTER - 30%", {"COTTON": [70.0], "POLYESTER": [30.0]}),
+        ("COTTON (60%) POLYESTER (40%)", {"COTTON": [60.0], "POLYESTER": [40.0]}),
+    ],
+)
+def test_ocr_parser_supported_percentage_syntax(text, expected):
+    from app.integrations.teammate_modules.ocr.text_parser import parse_composition
+
+    assert parse_composition(text) == expected
+
+
+def test_ocr_parser_unreadable_text_returns_no_composition():
+    from app.integrations.teammate_modules.ocr.text_parser import parse_composition
+
+    assert parse_composition("CARE INSTRUCTIONS WASH COLD DO NOT BLEACH") == {}
+
+
 # ==============================================================================
 # 3. Vision Adapter Tests (Anshika's TextileNet ResNet-18)
 # ==============================================================================
@@ -208,12 +262,36 @@ def test_vision_adapter_status_info():
     status = vision_adapter.status_info()
     assert status["adapter"] == "Anshika-TextileNet-Vision-Adapter"
     assert status["classes_count"] == 33
-    assert status["status_code"] in ("OPERATIONAL", "MODEL_CHECKPOINT_MISSING")
+    assert status["status_code"] in (
+        "OPERATIONAL",
+        "ASSET_AVAILABLE_NOT_LOADED",
+        "MODEL_CHECKPOINT_MISSING",
+        "CHECKPOINT_UNAVAILABLE",
+    )
     if status["checkpoint_exists"]:
-        assert status["status"] == "REAL INTEGRATION VERIFIED"
-        assert status["status_code"] == "OPERATIONAL"
+        assert status["asset_available"] is True
+        if status["model_loaded"]:
+            assert status["status_code"] == "OPERATIONAL"
+        else:
+            assert status["status_code"] == "ASSET_AVAILABLE_NOT_LOADED"
     else:
         assert "ASSET MISSING" in status["status"]
+
+
+def test_vision_status_does_not_initialize_or_load_model(tmp_path):
+    checkpoint = tmp_path / "available-but-not-loaded.pth"
+    checkpoint.write_bytes(b"not loaded by status inspection")
+    adapter = VisionAdapter(checkpoint_path=checkpoint)
+
+    status = adapter.status_info()
+
+    assert adapter._initialized is False
+    assert adapter._model is None
+    assert status["asset_available"] is True
+    assert status["initialization_attempted"] is False
+    assert status["model_loaded"] is False
+    assert status["inference_ready"] is False
+    assert status["status_code"] == "ASSET_AVAILABLE_NOT_LOADED"
 
 
 def test_vision_adapter_missing_checkpoint_safety(make_image_bytes):
@@ -230,6 +308,15 @@ def test_vision_adapter_missing_checkpoint_safety(make_image_bytes):
     assert "checkpoint not found" in prediction.warnings[0].lower()
 
 
+def test_vision_missing_checkpoint_status_is_transparent(make_image_bytes):
+    missing_adapter = VisionAdapter(checkpoint_path=Path("nonexistent/res18_ckpt.pth"))
+    status = missing_adapter.status_info()
+    assert status["checkpoint_exists"] is False
+    assert status["model_loaded"] is False
+    assert status["inference_ready"] is False
+    assert status["status_code"] == "MODEL_CHECKPOINT_MISSING"
+
+
 def test_vision_adapter_live_inference(make_image_bytes):
     """Verify VisionAdapter executes real forward pass with trained TextileNet ResNet-18 weights."""
     if not vision_adapter.is_available:
@@ -240,6 +327,8 @@ def test_vision_adapter_live_inference(make_image_bytes):
 
     import asyncio
     prediction = asyncio.run(vision_adapter.predict_material(processed))
+    assert vision_adapter._initialized is True
+    assert vision_adapter._model is not None
     assert prediction.predicted_material is not None
     assert prediction.confidence is not None
     assert 0.0 <= prediction.confidence <= 1.0
@@ -541,13 +630,46 @@ def test_reconciliation_both_fail():
     assert any("unable to determine garment fabric composition" in w for w in warnings)
 
 
-def test_scoring_near_100_percent_renormalization():
-    """Verify ScoringAdapter re-normalizes floating-point blends summing to ~99.9%."""
-    # 33.33 * 3 = 99.99%
+def test_scoring_accepts_tolerance_boundary_without_renormalizing(monkeypatch):
+    """The original proportions reach the scorer unchanged within ±0.01%."""
     imperfect_blend = {"cotton": 33.33, "polyester": 33.33, "wool": 33.33}
+    received = []
+    original_score = scoring_adapter._scorer.score
+
+    def capture_and_score(composition):
+        received.append(dict(composition))
+        return original_score(composition)
+
+    monkeypatch.setattr(scoring_adapter._scorer, "score", capture_and_score)
     result = scoring_adapter.calculate_impact(imperfect_blend)
     assert result.overall_impact_score > 0
     assert result.overall_impact_score <= 100
+    assert received == [imperfect_blend]
+
+
+@pytest.mark.parametrize(
+    ("total", "accepted"),
+    [
+        (98.0, False),
+        (99.0, False),
+        (99.9, False),
+        (100.0, True),
+        (100.1, False),
+        (101.0, False),
+        (102.0, False),
+        (99.99, True),
+        (100.01, True),
+    ],
+)
+def test_scoring_total_uses_absolute_point_zero_one_tolerance(total, accepted):
+    composition = {"cotton": 50.0, "polyester": round(total - 50.0, 2)}
+    if accepted:
+        result = scoring_adapter.calculate_impact(composition)
+        assert result.overall_impact_score is not None
+    else:
+        with pytest.raises(ScoringError) as exc:
+            scoring_adapter.calculate_impact(composition)
+        assert exc.value.status_code == 422
 
 
 def test_ocr_parser_reversed_syntax_and_colons():

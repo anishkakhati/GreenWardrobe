@@ -2,6 +2,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from app.core.composition import composition_total_is_valid
 from .config import CATEGORY_WEIGHTS, SCORE_BANDS, MIN_DATA_COVERAGE
 
 
@@ -48,7 +49,7 @@ class EnvironmentalScorer:
             if percentage > 0:
                 cleaned[material] = percentage
         total = sum(cleaned.values())
-        if not np.isclose(total, 100.0, atol=0.01):
+        if not composition_total_is_valid(cleaned.values()):
             raise ValueError(f"Composition must total 100%; received {total:.2f}%.")
         return cleaned
 
