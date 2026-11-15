@@ -17,3 +17,16 @@ computer-vision/datasets/
 computer-vision/checkpoints/
 computer-vision/**/*.pth
 computer-vision/**/*.pt
+
+# GreenWardrobe demo assets allowed in Git
+!computer-vision/checkpoints/
+computer-vision/checkpoints/*
+!computer-vision/checkpoints/demo_initialized.pth
+
+!computer-vision/data/
+!computer-vision/data/demo/
+!computer-vision/data/demo/demo_labels.txt
+
+# Exclude demo dataset manifest and other local data
+computer-vision/data/demo/*
+!computer-vision/data/demo/demo_labels.txt

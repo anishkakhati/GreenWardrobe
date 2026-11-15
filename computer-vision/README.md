@@ -1,201 +1,273 @@
-# GreenWardrobe: Computer Vision
+# GreenWardrobe Computer Vision
 
-## Phase 1: TextileNet Fibre Classification Baseline
+## Overview
 
-### 1. Objective
+GreenWardrobe Computer Vision analyses garment images to predict likely material categories. It provides a reusable inference module and a FastAPI service for integration with the GreenWardrobe backend.
 
-This module establishes a computer vision baseline for identifying textile fibres from garment images.
+The current demo uses a fine-tuned ResNet-18 model with eight material classes.
 
-The initial baseline uses the pretrained fibre-classification model from [TextileNet](https://github.com/hahashu/TextileNet), a research project that introduces separate taxonomies for fibre and fabric identification.
+**Important:** Predictions are based on visual appearance. They are not laboratory verification of a garment's actual fibre composition. OCR-extracted garment label information should be considered alongside visual predictions.
 
-This phase focuses on research, model inspection, inference, and evaluation. It does not yet implement GreenWardrobe's production prediction API or fine-tune the model.
-
-### 2. Model Details
+## 1. Model Details
 
 | Property | Details |
 |---|---|
-| Source project | TextileNet |
-| Task | Fibre classification |
 | Architecture | ResNet-18 |
 | Framework | PyTorch |
-| Number of output classes | 33 |
-| Input image size | 224 × 224 |
-| Input channels | RGB |
-| Output | Fibre class scores |
+| Input | RGB image |
+| Input resolution | 224 × 224 |
+| Output classes | 8 |
+| Inference | Top-3 material predictions |
+| Device support | Apple MPS, CUDA, CPU |
+| API framework | FastAPI |
 
-The model implementation is based on the upstream TextileNet repository.
+### Supported Demo Classes
 
-**Important:** The upstream README benchmark table refers to ResNet50, while the inspected model implementation and checkpoint used in this experiment correspond to ResNet-18. These should not be treated as the same model configuration.
+1. Leather
+2. Wool
+3. Cotton
+4. Polyester
+5. Camel
+6. Nylon
+7. Silk
+8. Fur
 
-### 3. Fibre Classes
+## 2. Demo Model Evaluation
 
-The class-to-index mapping is maintained in:
-
-`labels/fibre_label.txt`
-
-The 33 classes are:
-
-Abaca, Acrylic, Alpaca, Angora, Aramid, Camel, Cashmere, Cotton, Cupro, Elastane/Spandex, Flax/Linen, Fur, Hemp, Horse Hair, Jute, Leather, Llama, Lyocell, Milk Fibre, Modal, Mohair, Nylon, Polyester, Polyolefin, Ramie, Silk, Sisal, Soybean Fibre, Suede, Triacetate/Acetate, Viscose/Rayon, Wool, and Yak.
-
-### 4. Baseline Evaluation
-
-The pretrained model was evaluated on the locally available TextileNet fibre test directory.
+The initialized eight-class model was evaluated on the validation split.
 
 | Metric | Result |
 |---|---:|
-| Images evaluated | 24,886 |
-| Represented test classes | 32 |
-| Top-1 accuracy | 45.94% |
-| Top-3 accuracy | 73.41% |
-| Macro F1-score (32 represented classes) | 0.2755 |
-| Weighted F1-score | 0.4286 |
+| Validation images | 3,112 |
+| Accuracy | 63.82% |
+| Macro Precision | 61.39% |
+| Macro Recall | 64.21% |
+| Macro F1-score | 62.28% |
+| Weighted F1-score | 63.94% |
 
-The label mapping contains 33 classes, but the local test directory had no valid test images for `polyolefin`.
+### Per-class F1-score
 
-The evaluation used the available local test directory. It has not been established that this directory exactly matches the split used to produce the checkpoint's reported metadata.
+| Material | F1-score |
+|---|---:|
+| Leather | 74.05% |
+| Wool | 70.59% |
+| Camel | 70.59% |
+| Cotton | 67.51% |
+| Polyester | 64.60% |
+| Silk | 52.44% |
+| Nylon | 50.43% |
+| Fur | 48.05% |
 
-### 5. Evaluation Observations
+These are validation results for the current demo model, not guarantees of performance on real-world garment photographs.
 
-The model performs unevenly across fibre classes.
+## 3. Inference API
 
-Examples of stronger top-1 class accuracy:
+The module exposes a FastAPI service.
 
-- Polyester: 74.09%
-- Camel: 65.68%
-- Cotton: 61.58%
-- Leather: 60.31%
-- Wool: 59.82%
+### Endpoints
 
-Examples of weaker top-1 class accuracy:
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/` | Service information |
+| GET | `/health` | Model health, device and supported classes |
+| POST | `/predict` | Predict material from an uploaded image |
+| GET | `/docs` | Interactive Swagger documentation |
 
-- Soybean fibre: 0%
-- Acrylic: 7.21%
-- Angora: 10.15%
-- Ramie: 10.19%
-- Lyocell: 10.77%
+### Prediction Request
 
-The confusion matrix shows substantial confusion between visually or statistically similar classes. Frequent errors include:
+Send a multipart form-data request with the image under the field name `file`.
 
-- Cotton predicted as polyester.
-- Elastane/spandex predicted as polyester.
-- Polyester predicted as cotton.
-- Nylon predicted as polyester.
-- Silk predicted as polyester.
+Supported formats:
 
-These results indicate that the pretrained model is a useful research baseline, but its predictions should not be treated as definitive fibre composition.
+- JPEG
+- PNG
+- WEBP
 
-### 6. Checkpoint Accuracy Discrepancy
+Maximum upload size: 10 MB.
 
-The checkpoint metadata reports an accuracy of approximately 49.70%.
+### Example Response
 
-Our evaluation measured 45.94% top-1 accuracy, a difference of approximately 3.76 percentage points.
-
-The exact cause has not been established. Potential factors include differences in the original evaluation split, dataset version, or evaluation configuration.
-
-Therefore, the local result is documented as an independent baseline measurement, not as an exact reproduction of the upstream benchmark.
-
-### 7. Repository Structure
-
-```text
-computer-vision/
-├── README.md
-├── evaluate.py
-├── TEXTILENET-LICENSE
-├── labels/
-│   └── fibre_label.txt
-├── evaluation/
-│   ├── classification_report.csv
-│   └── confusion_matrix.csv
-└── src/
-    └── resnet_model/
-        └── resnet.py
+```json
+{
+  "success": true,
+  "predicted_material": "polyester",
+  "confidence": 0.6453,
+  "confidence_percent": 64.53,
+  "low_confidence": false,
+  "confidence_threshold": 0.55,
+  "top_predictions": [
+    {
+      "material": "polyester",
+      "confidence": 0.6453,
+      "confidence_percent": 64.53
+    },
+    {
+      "material": "fur",
+      "confidence": 0.1615,
+      "confidence_percent": 16.15
+    },
+    {
+      "material": "cotton",
+      "confidence": 0.061,
+      "confidence_percent": 6.1
+    }
+  ],
+  "model": "GreenWardrobe-ResNet18",
+  "device": "mps",
+  "filename": "garment.jpeg"
+}
 ```
 
-### 8. Running the Evaluation
+The confidence threshold of 0.55 is a demo warning threshold. It has not been calibrated as a probability of correctness.
 
-#### Requirements
+## 4. Setup and Installation
+
+### Prerequisites
 
 - Python 3
-- PyTorch
-- NumPy
-- Pillow
-- scikit-learn
+- Git
+- Git LFS
+- PyTorch-compatible environment
 
-Install the Python dependencies:
+### Clone the repository
 
 ```bash
-pip install torch numpy Pillow scikit-learn
+git clone https://github.com/anishkakhati/GreenWardrobe.git
+cd GreenWardrobe
 ```
 
-#### Dataset directory format
+### Install Git LFS and retrieve the model checkpoint
 
-The test directory should contain one folder per fibre class:
-
-```text
-test/
-├── abaca/
-├── acrylic/
-├── alpaca/
-├── ...
-└── yak/
+```bash
+git lfs install
+git lfs pull
 ```
 
-Images are resized to 224 × 224 pixels and converted to RGB.
+The demo checkpoint is stored using Git LFS. Ensure Git LFS is installed before running inference.
 
-#### Checkpoint
+### Create a virtual environment
 
-The pretrained checkpoint is not included in this repository.
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
 
-Obtain the appropriate TextileNet fibre ResNet-18 checkpoint from the upstream project, subject to its applicable usage and redistribution terms.
+### Install dependencies
 
-#### Run
+```bash
+pip install -r computer-vision/requirements-api.txt
+```
+
+## 5. Run the API
 
 From the GreenWardrobe repository root:
 
 ```bash
-python computer-vision/evaluate.py \
-  --data-dir /path/to/fibre/test \
-  --checkpoint /path/to/res18_ckpt.pth \
-  --labels computer-vision/labels/fibre_label.txt \
-  --output-dir computer-vision/evaluation \
-  --device auto
+PYTHONPATH=computer-vision uvicorn api.main:app --app-dir computer-vision --host 0.0.0.0 --port 8000
 ```
 
-Available device options:
+Open the interactive API documentation:
 
-- `auto`: Uses Apple Silicon MPS when available, otherwise CPU.
-- `mps`: Uses Apple Silicon GPU.
-- `cpu`: Uses CPU.
+http://127.0.0.1:8000/docs
 
-The script generates:
+Check model health:
 
-- `classification_report.csv`
-- `confusion_matrix.csv`
+http://127.0.0.1:8000/health
 
-### 9. Current Limitations
+The model checkpoint and demo label file must be present before starting the service.
 
-- Predictions are based on garment image appearance, not direct laboratory fibre analysis.
-- Visually similar fibres may be confused.
-- Performance varies considerably across classes.
-- The local evaluation does not establish performance on real-world user-uploaded images.
-- The checkpoint's reported accuracy has not been exactly reproduced.
-- The current module is an offline evaluation baseline, not yet integrated with the GreenWardrobe backend.
-- The model does not independently verify fibre composition from garment labels.
+## 6. Backend Integration
 
-Computer vision predictions should eventually be combined with OCR-extracted garment label information and confidence-aware recommendations.
+The Computer Vision service accepts image uploads through the `/predict` endpoint.
 
-### 10. Next Steps
+Example Python integration:
 
-1. Inspect training class distribution.
-2. Investigate class imbalance and model confusion.
-3. Experiment with fine-tuning and improved evaluation.
-4. Build a reusable image prediction interface.
-5. Integrate the prediction module with the GreenWardrobe backend.
+```python
+import requests
 
-### 11. References and Attribution
+url = "http://127.0.0.1:8000/predict"
 
-- TextileNet repository: https://github.com/hahashu/TextileNet
-- TextileNet research paper: https://arxiv.org/abs/2301.06160
-- The upstream repository's MIT licence is included as `TEXTILENET-LICENSE`.
+with open("garment.jpg", "rb") as image:
+    response = requests.post(
+        url,
+        files={"file": ("garment.jpg", image, "image/jpeg")}
+    )
 
-The upstream README separately describes the licensing of its data-collection code and dataset. The inclusion of the MIT licence here does not imply that the dataset or pretrained checkpoint is relicensed under MIT.
+print(response.json())
+```
+
+For a backend running on a different machine or container, replace `127.0.0.1` with the address where the Computer Vision service is reachable.
+
+The backend can use the predicted material and top predictions alongside OCR-extracted label composition. These sources should remain distinguishable when generating the final material assessment.
+
+## 7. Repository Structure
+
+```text
+computer-vision/
+├── api/
+│   └── main.py
+├── checkpoints/
+│   └── demo_initialized.pth
+├── data/
+│   └── demo/
+│       └── demo_labels.txt
+├── evaluation/
+│   ├── classification_report.csv
+│   └── confusion_matrix.csv
+├── labels/
+│   └── fibre_label.txt
+├── src/
+│   ├── data/
+│   ├── inference/
+│   ├── resnet_model/
+│   └── training/
+├── evaluate.py
+├── initialize_demo_model.py
+├── analyze_models.py
+├── inspect_errors.py
+├── create_error_contact_sheet.py
+├── requirements-api.txt
+└── README.md
+```
+
+The dataset manifest, original dataset images, and intermediate training checkpoints are local development assets and are not included in the repository.
+
+## 8. Training and Evaluation
+
+The project includes utilities for:
+
+- Dataset loading and preprocessing.
+- Frozen-backbone training.
+- Full-model fine-tuning.
+- Model evaluation and metric reporting.
+- Confusion matrix analysis.
+- Error inspection and visualization.
+- Initializing the eight-class demo model.
+
+The demo checkpoint was initialized from the fine-tuned model and adapted to the selected eight-class output space.
+
+Training datasets and intermediate checkpoints are not required to run the inference API.
+
+## 9. Limitations
+
+- Visual appearance cannot independently establish exact fibre composition.
+- Visually similar materials may be confused.
+- Performance varies across material classes.
+- The validation results do not establish real-world performance on arbitrary user-uploaded images.
+- The confidence threshold is a demo heuristic, not a calibrated reliability score.
+- The eight-class model covers only a subset of the original TextileNet taxonomy.
+- Label-based composition evidence should be used alongside visual predictions.
+
+## 10. Attribution and References
+
+The initial research baseline is based on TextileNet.
+
+- Repository: https://github.com/hahashu/TextileNet
+- Research paper: https://arxiv.org/abs/2301.06160
+- Upstream MIT licence: `TEXTILENET-LICENSE`
+
+The upstream repository separately describes the licensing of its data-collection code and dataset. Including its MIT licence does not imply that the dataset or pretrained checkpoint is relicensed under MIT.
+
+---
+
+**GreenWardrobe Computer Vision | Know Your Fabric.**

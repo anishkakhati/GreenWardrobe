@@ -1,0 +1,1 @@
+{'leather': 0, 'wool': 1, 'cotton': 2, 'polyester': 3, 'camel': 4, 'nylon': 5, 'silk': 6, 'fur': 7}
