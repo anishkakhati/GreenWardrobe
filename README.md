@@ -6,7 +6,6 @@ GreenWardrobe explores clothing material composition and comparative environment
 
 - Backend: this repository, branch `feature/backend`.
 - Frontend: [GreenWardrobe-frontend](https://github.com/anishkakhati/GreenWardrobe/tree/feature/frontend), branch `feature/frontend`.
-- MVP status and handover checklist: [MVP_HANDOVER_REPORT.md](MVP_HANDOVER_REPORT.md).
 
 ## Technology
 
