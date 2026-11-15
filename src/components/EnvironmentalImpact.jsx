@@ -37,7 +37,7 @@ export default function EnvironmentalImpact({ impactData, environmentalProfiles 
         </div>}
       </div>)}
     </div> : <p className="text-sm text-gray-500">Material reference values not provided.</p>}
-    {impactData.breakdown && <div><h4 className="font-bold text-sm mb-2">Score breakdown</h4><div className="grid sm:grid-cols-2 gap-2">{Object.entries(impactData.breakdown).filter(([, value]) => value).map(([key, value]) => <p key={key} className="text-xs text-gray-700 capitalize">{key}: {value.score} / 100{value.rating ? ` · ${value.rating}` : ""}{value.description ? ` — ${value.description}` : ""}</p>)}</div></div>}
+    {impactData.breakdown && <div><h4 className="font-bold text-sm mb-2">Score breakdown</h4><div className="grid sm:grid-cols-2 gap-2">{Object.entries(impactData.breakdown).filter(([, value]) => value).map(([key, value]) => <p key={key} className="text-xs text-gray-700 capitalize">{key}: {value.score == null ? "Unavailable" : `${value.score} / 100`}{value.rating ? ` · ${value.rating}` : ""}{value.description ? ` — ${value.description}` : ""}</p>)}</div></div>}
     {getImpactCategoryExplanationRows(aiExplanation?.impact_category_explanations).length > 0 && <div className="space-y-2">
       <h4 className="font-bold text-sm">Impact category explanations</h4>
       {getImpactCategoryExplanationRows(aiExplanation.impact_category_explanations).map(({ category, explanation }) => <p key={category} className="text-xs text-gray-700"><span className="font-semibold capitalize">{category.replaceAll("_", " ")}: </span>{explanation}</p>)}

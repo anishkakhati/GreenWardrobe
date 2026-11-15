@@ -9,6 +9,28 @@ function stringifyValue(value) {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
+export function getScoringStatusNotice(status) {
+  if (status === "ENGINE_ERROR") {
+    return {
+      role: "alert",
+      message: "The scoring service is unavailable or failed. Your extracted composition and material reference information are retained, but no score or recommendation was produced. Please try again later.",
+    };
+  }
+  if (status === "NO_COMPOSITION_DATA") {
+    return {
+      role: "status",
+      message: "Composition could not be determined. A reliable score or recommendation is unavailable.",
+    };
+  }
+  if (status === "INSUFFICIENT_DATA") {
+    return {
+      role: "status",
+      message: "Composition was extracted, but it is incomplete, invalid, or unsupported for scoring. No score or recommendation was produced.",
+    };
+  }
+  return null;
+}
+
 export function getCustomIndicatorRows(customIndicators) {
   if (!customIndicators || typeof customIndicators !== "object" || Array.isArray(customIndicators)) return [];
 

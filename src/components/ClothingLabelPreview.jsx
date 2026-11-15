@@ -1,11 +1,12 @@
 import React from "react";
 import { CheckCircle2, Sparkles } from "lucide-react";
-import { getDataQualityDisclaimer } from "../services/resultPresentation.js";
+import { getDataQualityDisclaimer, getScoringStatusNotice } from "../services/resultPresentation.js";
 
 export default function ClothingLabelPreview({ garmentData, imagePreviewUrl }) {
   if (!garmentData) return null;
   const { fabricComposition = [], imageClassification = {}, compositionSource, compositionConfidence, aiExplanation, warnings = [] } = garmentData;
   const imageType = imageClassification.image_type;
+  const scoringNotice = getScoringStatusNotice(garmentData.scoringStatus);
   const classificationText = imageType === "GARMENT"
     ? "Garment detected — visual fabric analysis"
     : imageType === "LABEL"
@@ -15,6 +16,7 @@ export default function ClothingLabelPreview({ garmentData, imagePreviewUrl }) {
 
   return (
     <section className="bg-white rounded-2xl border border-emerald-100 shadow-sm p-6 sm:p-7 space-y-5">
+      {scoringNotice && <p role={scoringNotice.role} className={`p-3 rounded-xl border text-sm ${scoringNotice.role === "alert" ? "bg-red-50 border-red-200 text-red-900" : "bg-amber-50 border-amber-200 text-amber-900"}`}>{scoringNotice.message}</p>}
       <div className="flex items-center gap-2 text-sm font-semibold text-emerald-800">
         <CheckCircle2 className="w-4 h-4" />{classificationText}
       </div>

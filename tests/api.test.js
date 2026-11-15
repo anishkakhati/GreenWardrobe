@@ -1,7 +1,7 @@
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { adaptBackendResponse } from "../src/services/responseAdapter.js";
-import { getCustomIndicatorRows, getDataQualityDisclaimer, getImpactCategoryExplanationRows } from "../src/services/resultPresentation.js";
+import { getCustomIndicatorRows, getDataQualityDisclaimer, getImpactCategoryExplanationRows, getScoringStatusNotice } from "../src/services/resultPresentation.js";
 import { analyzeClothingImage, checkBackendHealth } from "../src/services/api.js";
 
 const originalFetch = globalThis.fetch;
@@ -20,6 +20,9 @@ test("posts exactly one multipart image to the backend analysis endpoint", async
   assert.equal(captured.options.headers, undefined);
   assert.deepEqual([...captured.options.body.keys()], ["image"]);
   assert.equal(result.imageClassification.image_type, "GARMENT");
+  assert.equal(result.scoringStatus, "NO_COMPOSITION_DATA");
+  assert.equal(result.environmentalImpact.score, null);
+  assert.equal(result.recommendation, null);
 });
 
 test("adapts LABEL OCR composition and preserves classification without certification claims", () => {
@@ -36,6 +39,7 @@ test("returns successful LABEL analysis from the API adapter", async () => {
   const result = await analyzeClothingImage(new Blob(["label"], { type: "image/jpeg" }));
   assert.equal(result.imageClassification.image_type, "LABEL");
   assert.deepEqual(result.fabricComposition, [{ material: "linen", percentage: 100 }]);
+  assert.equal(result.scoringStatus, "SCORED");
 });
 
 test("keeps missing values null and does not synthesize scores or recommendations", () => {
@@ -43,19 +47,115 @@ test("keeps missing values null and does not synthesize scores or recommendation
   assert.equal(adapted.environmentalImpact.score, null);
   assert.equal(adapted.recommendation, null);
   assert.equal(adapted.fabricComposition.length, 0);
+  assert.equal(adapted.scoringStatus, "NO_COMPOSITION_DATA");
+});
+
+test("returns completed analysis with unavailable composition as an incomplete result", async () => {
+  globalThis.fetch = async () => response({
+    success: false,
+    analysis_id: "incomplete-1",
+    product: { composition: null },
+    impact_assessment: {
+      overall_impact_score: null,
+      recommendation: null,
+      calculation_basis: "unscored_due_to_missing_composition",
+      key_indicators: { status: "NO_COMPOSITION_DATA" },
+    },
+    warnings: ["Composition could not be established."],
+    limitations: [],
+  });
+
+  const result = await analyzeClothingImage(new Blob(["label"], { type: "image/jpeg" }));
+  assert.equal(result.analysisStatus, "incomplete");
+  assert.equal(result.scoringStatus, "NO_COMPOSITION_DATA");
+  assert.equal(result.environmentalImpact.score, null);
+  assert.equal(result.recommendation, null);
+  assert.match(result.warnings[0], /Composition could not be established/);
+});
+
+test("keeps a valid partial composition and unavailable score as an incomplete result", async () => {
+  globalThis.fetch = async () => response({
+    success: false,
+    analysis_id: "partial-1",
+    image_classification: { image_type: "LABEL", analysis_source: "OCR", classification_confidence: 0.83 },
+    product: {
+      composition: { materials: [{ name: "acrylic", percentage: 16 }], confidence: 0.91, source: "ocr_label" },
+      composition_source: "ocr_label",
+      visual_prediction: null,
+    },
+    environmental_data: { acrylic: { material: "acrylic", water_liters_per_kg: 350, co2_kg_per_kg: 16.8 } },
+    impact_assessment: {
+      overall_impact_score: null,
+      recommendation: null,
+      calculation_basis: "unscored_due_to_unmapped_materials",
+      breakdown: { water: { score: null, description: "Insufficient composition." } },
+      key_indicators: { status: "INSUFFICIENT_DATA", reason: "Composition totals 16%." },
+    },
+    warnings: ["Label composition is partial or incomplete."],
+    limitations: [],
+  });
+
+  const result = await analyzeClothingImage(new Blob(["label"], { type: "image/jpeg" }));
+  assert.equal(result.analysisStatus, "incomplete");
+  assert.equal(result.scoringStatus, "INSUFFICIENT_DATA");
+  assert.deepEqual(result.fabricComposition, [{ material: "acrylic", percentage: 16 }]);
+  assert.equal(result.environmentalImpact.score, null);
+  assert.equal(result.environmentalImpact.breakdown.water.score, null);
+  assert.equal(result.recommendation, null);
+  assert.match(result.warnings[0], /partial or incomplete/);
 });
 
 test("hides backend placeholder scoring when backend marks the result unscored", () => {
-  const adapted = adaptBackendResponse({ ...garment, impact_assessment: {
+  const adapted = adaptBackendResponse({ ...garment, product: {
+    composition: { materials: [{ name: "cotton", percentage: 100 }] },
+  }, impact_assessment: {
     overall_impact_score: 50,
     recommendation: "Think Twice",
     calculation_basis: "unscored_due_to_unmapped_materials",
     key_indicators: { status: "INSUFFICIENT_DATA", reason: "Composition must total 100%." },
   } });
   assert.equal(adapted.environmentalImpact.score, null);
+  assert.equal(adapted.scoringStatus, "INSUFFICIENT_DATA");
   assert.equal(adapted.recommendation, null);
   assert.equal(adapted.recommendationReason, null);
   assert.equal(adapted.environmentalImpact.keyIndicators.status, "INSUFFICIENT_DATA");
+});
+
+test("distinguishes engine failure, insufficient data, and missing composition", () => {
+  const statuses = ["ENGINE_ERROR", "INSUFFICIENT_DATA", "NO_COMPOSITION_DATA"];
+  const messages = statuses.map((status) => getScoringStatusNotice(status).message);
+  assert.equal(new Set(messages).size, 3);
+  assert.match(getScoringStatusNotice("ENGINE_ERROR").message, /scoring service is unavailable or failed/i);
+  assert.match(getScoringStatusNotice("INSUFFICIENT_DATA").message, /incomplete, invalid, or unsupported/i);
+  assert.match(getScoringStatusNotice("NO_COMPOSITION_DATA").message, /could not be determined/i);
+  assert.equal(getScoringStatusNotice("SCORED"), null);
+});
+
+test("ENGINE_ERROR remains null-scored, preserves OCR composition, and uses an explicit failure state", async () => {
+  const payload = {
+    success: true,
+    analysis_id: "engine-error-1",
+    image_classification: { image_type: "LABEL", analysis_source: "OCR" },
+    product: { composition: { source: "ocr_label", materials: [{ name: "cotton", percentage: 100 }] } },
+    environmental_data: { cotton: { material: "cotton", water_liters_per_kg: 500 } },
+    impact_assessment: {
+      overall_impact_score: null,
+      recommendation: null,
+      calculation_basis: "unscored_due_to_engine_error",
+      key_indicators: { status: "ENGINE_ERROR", reason: "The scoring service is unavailable or failed." },
+    },
+    warnings: ["The scoring service is unavailable or failed."],
+  };
+  globalThis.fetch = async () => response(payload);
+
+  const result = await analyzeClothingImage(new Blob(["label"], { type: "image/jpeg" }));
+  assert.equal(result.scoringStatus, "ENGINE_ERROR");
+  assert.equal(result.analysisStatus, "incomplete");
+  assert.deepEqual(result.fabricComposition, [{ material: "cotton", percentage: 100 }]);
+  assert.equal(result.environmentalImpact.score, null);
+  assert.equal(result.recommendation, null);
+  assert.match(getScoringStatusNotice(result.scoringStatus).message, /scoring service is unavailable or failed/i);
+  assert.doesNotMatch(getScoringStatusNotice(result.scoringStatus).message, /traceback|private engine detail/i);
 });
 
 test("preserves per-kilogram values and null optional fields", () => {
@@ -138,4 +238,24 @@ test("health check requests GET /health", async () => {
   globalThis.fetch = async (url) => { requested = url; return response({ status: "healthy" }); };
   assert.equal(await checkBackendHealth(), true);
   assert.match(requested, /\/health$/);
+});
+
+test("health check treats non-healthy payloads and HTTP failures as disconnected", async () => {
+  globalThis.fetch = async () => response({ status: "starting" });
+  assert.equal(await checkBackendHealth(), false);
+  globalThis.fetch = async () => response({ status: "healthy" }, 503);
+  assert.equal(await checkBackendHealth(), false);
+});
+
+test("health check times out and aborts a stalled request", async () => {
+  let requestSignal;
+  globalThis.fetch = async (_url, { signal }) => {
+    requestSignal = signal;
+    return new Promise((resolve, reject) => {
+      signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    });
+  };
+
+  assert.equal(await checkBackendHealth({ timeoutMs: 5 }), false);
+  assert.equal(requestSignal.aborted, true);
 });

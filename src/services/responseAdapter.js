@@ -24,10 +24,22 @@ export function adaptBackendResponse(response) {
   const ai = response?.ai_explanation || {};
   const classification = response?.image_classification || {};
   const scoringStatus = impact.key_indicators?.status;
-  const scoringUnavailable = String(impact.calculation_basis || "").startsWith("unscored_")
+  const compositionMissing = composition.length === 0;
+  const scoringUnavailable = compositionMissing
+    || String(impact.calculation_basis || "").startsWith("unscored_")
     || ["INSUFFICIENT_DATA", "ENGINE_ERROR", "NO_COMPOSITION_DATA"].includes(scoringStatus);
+  const normalizedScoringStatus = scoringStatus === "ENGINE_ERROR"
+    ? "ENGINE_ERROR"
+    : scoringStatus === "NO_COMPOSITION_DATA" || compositionMissing
+      ? "NO_COMPOSITION_DATA"
+      : scoringStatus === "INSUFFICIENT_DATA" || scoringUnavailable || impact.overall_impact_score == null
+        ? "INSUFFICIENT_DATA"
+        : "SCORED";
+  const analysisStatus = normalizedScoringStatus === "SCORED" ? "complete" : "incomplete";
 
   return {
+    analysisStatus,
+    scoringStatus: normalizedScoringStatus,
     id: response?.analysis_id,
     name: "Analysis result",
     category: textOr(product.visual_prediction?.predicted_material, "Garment material not identified"),

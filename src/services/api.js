@@ -29,15 +29,34 @@ export async function analyzeClothingImage(imageFile) {
     if (response.status === 422) throw new Error(message || "The image could not be classified. Upload a clear garment photo or readable care label.");
     throw new Error(message || `Analysis failed (HTTP ${response.status}).`);
   }
-  if (!payload || payload.success === false) throw new Error(payload?.error?.message || "The backend returned an invalid analysis response.");
+  if (!payload) throw new Error("The backend returned an invalid analysis response.");
+  if (payload.success === false) {
+    const status = payload?.impact_assessment?.key_indicators?.status;
+    const completedWithoutReliableScore = Boolean(payload?.analysis_id)
+      && ["NO_COMPOSITION_DATA", "INSUFFICIENT_DATA", "ENGINE_ERROR"].includes(status);
+    if (!completedWithoutReliableScore) {
+      throw new Error(payload?.error?.message || "The backend returned an invalid analysis response.");
+    }
+  }
   return adaptBackendResponse(payload);
 }
 
-export async function checkBackendHealth() {
+export async function checkBackendHealth({ signal, timeoutMs = 3000 } = {}) {
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  else signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
-    const response = await fetch(`${API_BASE_URL}/health`);
-    return response.ok;
+    const response = await fetch(`${API_BASE_URL}/health`, { signal: controller.signal });
+    if (!response.ok) return false;
+    const payload = await response.json();
+    return payload?.status === "healthy";
   } catch {
     return false;
+  } finally {
+    clearTimeout(timeoutId);
+    signal?.removeEventListener("abort", abortFromCaller);
   }
 }

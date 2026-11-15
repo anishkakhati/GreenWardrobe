@@ -35,7 +35,7 @@ export default function Recommendations({
 
   const activeRec = RECOMMENDATIONS.find((r) => r.id === selectedActionId);
 
-  const isRecommended = selectedActionId === recommendedAction;
+  const isRecommended = Boolean(recommendedAction) && selectedActionId === recommendedAction;
 
   return (
     <div className="bg-white rounded-2xl border border-emerald-100 shadow-sm p-6 sm:p-7 space-y-6">

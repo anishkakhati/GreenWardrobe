@@ -48,7 +48,7 @@ export default function App() {
   const [apiError, setApiError] = useState(""); // Error message string
 
   // Backend connectivity is informational; analysis always uses the live API.
-  const [backendConnected, setBackendConnected] = useState(false);
+  const [backendStatus, setBackendStatus] = useState("checking");
 
   // 5. Analysis History (stores past scans during this session)
   const [historyList, setHistoryList] = useState([]);
@@ -56,15 +56,26 @@ export default function App() {
   // --------------------------------------------------------------------------
   // LIFECYCLE HOOK (useEffect)
   // --------------------------------------------------------------------------
-  // On component mount, check whether the configured backend is reachable.
+  // Poll the health endpoint at a modest interval and stop pending work on unmount.
   useEffect(() => {
-    async function verifyBackend() {
-      const isAlive = await checkBackendHealth();
-      setBackendConnected(isAlive);
-      if (isAlive) {
-      }
-    }
+    let active = true;
+    let timerId;
+    let controller;
+
+    const verifyBackend = async () => {
+      controller = new AbortController();
+      const isAlive = await checkBackendHealth({ signal: controller.signal });
+      if (!active || controller.signal.aborted) return;
+      setBackendStatus(isAlive ? "connected" : "disconnected");
+      timerId = setTimeout(verifyBackend, 10000);
+    };
+
     verifyBackend();
+    return () => {
+      active = false;
+      clearTimeout(timerId);
+      controller?.abort();
+    };
   }, []);
 
   // --------------------------------------------------------------------------
@@ -121,9 +132,13 @@ export default function App() {
       // Call our API service function (demonstrating Fetch API POST request)
       const result = await analyzeClothingImage(selectedImage);
       setAnalysisResult(result);
+      setBackendStatus("connected");
       setHistoryList((prev) => [result, ...prev.slice(0, 3)]);
     } catch (err) {
       console.error("Analysis execution error:", err);
+      if (err.message?.startsWith("Cannot reach the GreenWardrobe backend")) {
+        setBackendStatus("disconnected");
+      }
       setApiError(err.message || "An unexpected error occurred during analysis.");
     } finally {
       setIsLoading(false);
@@ -146,7 +161,6 @@ export default function App() {
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        backendConnected={backendConnected}
       />
 
       {/* Main Content Area */}
@@ -208,8 +222,8 @@ export default function App() {
 
               {/* Status Pill Badge */}
               <div className="flex items-center gap-2">
-                <span className={`px-3.5 py-1.5 rounded-full text-xs font-semibold ${backendConnected ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
-                  Backend: {backendConnected ? "Connected" : "Unavailable"}
+                <span role="status" aria-live="polite" className={`px-3.5 py-1.5 rounded-full text-xs font-semibold ${backendStatus === "connected" ? "bg-emerald-50 text-emerald-800" : backendStatus === "disconnected" ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-700"}`}>
+                  Backend: {backendStatus === "connected" ? "Connected" : backendStatus === "disconnected" ? "Disconnected" : "Checking"}
                 </span>
               </div>
             </div>
