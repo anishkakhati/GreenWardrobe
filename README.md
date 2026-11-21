@@ -5,7 +5,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![OCR](https://img.shields.io/badge/OCR-EasyOCR-purple)
-![Dataset](https://img.shields.io/badge/Dataset-100%20Images-green)
+![Dataset](https://img.shields.io/badge/Dataset-500%20Images-green)
 ![Status](https://img.shields.io/badge/Project-Development-orange)
 
 ## 1. Project Overview
