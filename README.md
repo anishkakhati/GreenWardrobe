@@ -57,7 +57,7 @@ The project uses a dataset containing 100 synthetic clothing composition label i
 
 Dataset contents:
 
-- 100 JPG label images
+- 500 JPG label images
 - Ground-truth metadata CSV
 - Composition percentages
 - Country information
